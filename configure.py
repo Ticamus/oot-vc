@@ -48,10 +48,15 @@ OOT = [
     "oot-e",
 ]
 
+MM = [
+    "mm-j",
+]
+
 ALL_VERSIONS = [
     *OOT,
     *SM64,
     *MK64,
+    *MM,
 ]
 
 ### Script's arguments
@@ -328,7 +333,7 @@ config.libs = [
             Object(LinkedFor(*SM64, *MK64, *OOT), "emulator/pi.c"),
             Object(LinkedFor(*SM64, *MK64, *OOT), "emulator/mi.c"),
             Object(LinkedFor(*SM64, *MK64, *OOT), "emulator/disk.c"),
-            Object(NotLinked, "emulator/cpu.c"),
+            Object(LinkedFor(*OOT), "emulator/cpu.c", extra_cflags=["-DNON_MATCHING"]),
             Object(LinkedFor(*SM64, *MK64, *OOT), "emulator/pif.c"),
             Object(LinkedFor(*SM64, *MK64, *OOT), "emulator/ram.c"),
             Object(LinkedFor(*SM64, *MK64, *OOT), "emulator/rom.c"),

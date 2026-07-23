@@ -11,8 +11,9 @@
 #define OOT_J 7
 #define OOT_U 8
 #define OOT_E 9
+#define MM_J 10
 
-#define REGION_JP (VERSION == SM64_J || VERSION == MK64_J || VERSION == OOT_J)
+#define REGION_JP (VERSION == SM64_J || VERSION == MK64_J || VERSION == OOT_J || VERSION == MM_J)
 #define REGION_US (VERSION == SM64_U || VERSION == MK64_U || VERSION == OOT_U)
 #define REGION_EU (VERSION == SM64_E || VERSION == MK64_E || VERSION == OOT_E)
 
