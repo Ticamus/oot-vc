@@ -38,14 +38,7 @@ bool gDVDResetToggle = false;
 extern u32 lbl_80200654;
 extern u32 lbl_801FF7DC;
 
-//! TODO: document these
-typedef struct struct_8017B1E0 {
-    /* 0x00 */ s32 unk_00;
-    /* 0x04 */ u16* unk_04[10];
-    /* 0x18 */ u8 pad_unk_18[0x40 - 0x18];
-} struct_8017B1E0; // size = 0x40
 
-extern struct_8017B1E0 lbl_8017B1E0;
 #endif
 
 static void simulatorDEMOSwapBuffers(void) {
@@ -309,16 +302,15 @@ bool xlMain(void) {
     // char* spC;
     // s32 iName;
     // char cName;
+    char acNameROM[45];
     GXColor color;
+    s32 sp2C;
+    s32 sp28;
+    s32 sp10;
     s32 nSize0;
     SystemMode eMode;
-    s32 nSize1;
     s32 iName;
-    char* szNameROM;
-    char acNameROM[32];
-    s32 sp10;
-    s32 sp28;
-    s32 sp2C;
+    char *szNameROM;
 #endif
 
     simulatorParseArguments();
@@ -383,12 +375,12 @@ bool xlMain(void) {
     gnTickReset = OSGetTick();
 #endif
 
-    if (!xlHeapGetHeap1Free(&nSize0)) {
+    if (!xlHeapGetHeap1Free(&sp28)) { //1c
         return false;
     }
 
 #if IS_MM
-    if (!xlHeapGetHeap1Free(&nSize1)) {
+    if (!xlHeapGetHeap2Free(&nSize0)) { //14
         return false;
     }
 
@@ -414,7 +406,7 @@ bool xlMain(void) {
 
     strcpy(acNameROM, "rom");
 #elif IS_MM
-    fn_8007F314();
+    errorDisplayInit();
 
     if (simulatorGetArgument(SAT_NAME, &szNameROM)) {
         strcpy(acNameROM, szNameROM);
@@ -440,7 +432,7 @@ bool xlMain(void) {
         return false;
     }
 
-    if (!xlHeapGetHeap1Free(&nSize1)) {
+    if (!xlHeapGetHeap1Free(&nSize0)) {
         return false;
     }
 

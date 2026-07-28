@@ -27,6 +27,17 @@ typedef enum SimulatorArgumentType {
     SAT_COUNT,
 } SimulatorArgumentType;
 
+//! TODO: document these
+typedef struct struct_8017B1E0 {
+    /* 0x00 */ u32 unk_00;
+    /* 0x04 */ void* unk_04;
+} struct_8017B1E0; // size = 0x8
+
+extern struct_8017B1E0 lbl_8017B1E0[];
+
+
+
+
 void simulatorDEMODoneRender(void);
 bool simulatorDVDShowError(s32 nStatus, void* anData, s32 nSizeRead, u32 nOffset);
 bool simulatorDVDOpen(char* szNameFile, DVDFileInfo* pFileInfo);

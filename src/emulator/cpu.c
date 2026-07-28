@@ -38,7 +38,7 @@ static bool treeCleanUp(Cpu* pCPU, CpuTreeRoot* root);
 static bool treeCleanNodes(Cpu* pCPU, CpuFunction* top);
 static inline bool treeForceCleanUp(Cpu* pCPU, CpuFunction* tree, s32 kill_limit);
 static bool treeForceCleanNodes(Cpu* pCPU, CpuFunction* tree, s32 kill_limit);
-static bool treePrintNode(Cpu* pCPU, CpuFunction* tree, s32 print_flag, s32* left, s32* right);
+bool treePrintNode(Cpu* pCPU, CpuFunction* tree, s32 print_flag, s32* left, s32* right);
 static inline s32 treeMemory(Cpu* pCPU);
 
 s64 ganMaskGetCP0[] = {
@@ -9031,7 +9031,7 @@ static inline cpuUnknownMarioKartFrameSet(SystemRomType eTypeROM, void* pFrame, 
     }
 }
 
-static s32 cpuExecuteOpcode(Cpu* pCPU, s32 nCount0, s32 nAddressN64, s32 nAddressGCN) {
+s32 cpuExecuteOpcode(Cpu* pCPU, s32 nCount0, s32 nAddressN64, s32 nAddressGCN) {
     s32 pad1[2];
     u64 save;
     s32 restore;
@@ -10642,7 +10642,7 @@ static s32 cpuExecuteCall(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGC
  * @param nAddressGCN A pointer to the location where recompiled code should be stored.
  * @return s32 The address of the recompiled called function.
  */
-static s32 cpuExecuteLoadStore(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGCN) {
+s32 cpuExecuteLoadStore(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGCN) {
     u32* opcode;
     s32 iRegisterA;
     s32 iRegisterB;
@@ -10924,7 +10924,7 @@ static s32 cpuExecuteLoadStore(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddr
  * @param nAddressGCN A pointer to the location where recompiled code should be stored.
  * @return s32 The address of the recompiled called function.
  */
-static s32 cpuExecuteLoadStoreF(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGCN) {
+s32 cpuExecuteLoadStoreF(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGCN) {
     u32* opcode;
     s32 iRegisterA;
     s32 iRegisterB;
@@ -13632,7 +13632,7 @@ static bool treeForceCleanNodes(Cpu* pCPU, CpuFunction* tree, s32 kill_limit) {
     return false;
 }
 
-static bool treePrintNode(Cpu* pCPU, CpuFunction* tree, s32 print_flag, s32* left, s32* right) {
+bool treePrintNode(Cpu* pCPU, CpuFunction* tree, s32 print_flag, s32* left, s32* right) {
     CpuFunction* current;
     bool flag;
     s32 level;

@@ -499,7 +499,7 @@ static bool fn_80042C98(Rom* pROM) {
     xlHeapCopy(pROM->acHeader, pROM->pBuffer, 0x40);
 
     romSetEndianness(pROM);
-    fn_80007FD8();
+    frameSetupCache();
 #endif
 
     pROM->eModeLoad = RLM_FULL;
