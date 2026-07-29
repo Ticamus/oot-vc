@@ -318,14 +318,27 @@ typedef struct System {
 } System; // size = 0x98
 #endif
 
+#if IS_OOT || IS_MT
 typedef struct SystemRomConfig {
-    /*   OoT    MM   */
-    /* 0x0000 0x0000 */ s32 controllerConfiguration[PAD_MAX_CONTROLLERS][GCN_BTN_COUNT];
-    /* 0x0140 0x0160 */ s32 rumbleConfiguration;
-    /* 0x0144 0x0188 */ SystemObjectType storageDevice;
+    /* 0x0000 */ s32 controllerConfiguration[PAD_MAX_CONTROLLERS][GCN_BTN_COUNT];
+    /* 0x0140 */ s32 rumbleConfiguration;
+    /* 0x0144 */ SystemObjectType storageDevice;
     /* 0x0148 */ s32 normalControllerConfig;
     /* 0x014C */ s32 currentControllerConfig;
 } SystemRomConfig; // size = 0x150
+#elif IS_MM
+typedef struct SystemRomConfig {
+    /* 0x0000 */ char szCodeROM[5];
+    /* 0x0005 */ char unk_05[0x1F];
+    /* 0x0024 */ s32 controllerConfiguration[PAD_MAX_CONTROLLERS][GCN_BTN_COUNT];
+    /* 0x0184 */ s32 rumbleConfiguration;
+    //! NOTE: not a SystemObjectType here, but a mask of the supported save types
+    //! (1 = SRAM, 2 = FLASH, 4 = ...), see systemSetupGameALL
+    /* 0x0188 */ s32 storageDevice;
+    /* 0x018C */ s32 normalControllerConfig;
+    /* 0x0190 */ s32 currentControllerConfig;
+} SystemRomConfig; // size = 0x194
+#endif
 
 #define SYSTEM_CPU(pSystem) ((Cpu*)(((System*)(pSystem))->apObject[SOT_CPU]))
 #define SYSTEM_PIF(pSystem) ((Pif*)(((System*)(pSystem))->apObject[SOT_PIF]))

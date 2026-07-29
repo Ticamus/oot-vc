@@ -324,9 +324,179 @@ u32 lbl_8016FEA0[] = {
 };
 #endif
 
+#if IS_OOT || IS_MT
 static SystemRomConfig gSystemRomConfigurationList;
+#elif IS_MM
+static SystemRomConfig gSystemRomConfigurationList[1];
+#endif
+
+static inline void systemSetControllerConfiguration(SystemRomConfig* pRomConfig, s32 controllerConfig1,
+                                                    s32 controllerConfig2, bool bSetControllerConfig,
+                                                    bool bSetRumbleConfig) {
+    s32 iConfigList;
+
+    if (bSetRumbleConfig) {
+        pRomConfig->rumbleConfiguration = 0;
+    }
+
+    for (iConfigList = 0; iConfigList < 4; iConfigList++) {
+#if IS_OOT || IS_MT
+        simulatorCopyControllerMap(SYSTEM_CONTROLLER(SYSTEM_PTR),
+                                   (u32*)pRomConfig->controllerConfiguration[iConfigList],
+                                   contMap[((controllerConfig1 >> (iConfigList * 8)) & 0x7F)]);
+#elif IS_MM
+        simulatorCopyControllerMap((u32*)pRomConfig->controllerConfiguration[iConfigList],
+                                   contMap[((controllerConfig1 >> (iConfigList * 8)) & 0x7F)]);
+#endif
+        pRomConfig->rumbleConfiguration |= (1 << (iConfigList * 8)) & (controllerConfig1 >> 7);
+    }
+
+    if (bSetControllerConfig) {
+        pRomConfig->normalControllerConfig = controllerConfig2;
+        pRomConfig->currentControllerConfig = controllerConfig2;
+    }
+}
 
 extern _XL_OBJECTTYPE gClassEEPROM;
+#if IS_MM
+
+// Zelda Collection (Ura Zelda / Master Quest) ROM codes
+static char szCodeCZLJ[8] = "CZLJ";
+static char szCodeCZLE[8] = "CZLE";
+// Conker's Bad Fur Day (US)
+static char szCodeNFUE[8] = "NFUE";
+
+extern s32 lbl_802006B0;
+
+static bool systemSetupGameRAM(System* pSystem) {
+    char* szExtra;
+    bool bExpansion;
+    s32 nSizeRAM;
+    s32 nSizeCacheROM;
+    s32 nSizeExtra;
+    Rom* pROM;
+    u32 nCode;
+    u32 iCode;
+    u32 anCode[0x100]; // size = 0x400
+
+    bExpansion = false;
+    pROM = SYSTEM_ROM(pSystem);
+
+    if (!romCopy(pROM, anCode, 0x1000, sizeof(anCode), NULL)) {
+        return false;
+    }
+
+    nCode = 0;
+    for (iCode = 0; iCode < ARRAY_COUNT(anCode); iCode++) {
+        nCode += anCode[iCode];
+    }
+
+    // Ocarina of Time or Majora's Mask
+    if (gpSystem->eTypeROM == NZSJ || gpSystem->eTypeROM == NZSE || gpSystem->eTypeROM == NZSP) {
+        bExpansion = true;
+    }
+
+    if (romTestCode(pROM, szCodeCZLJ) || romTestCode(pROM, szCodeCZLE) || gpSystem->eTypeROM == NZSJ ||
+        gpSystem->eTypeROM == NZSE || gpSystem->eTypeROM == NZSP) {
+        switch (nCode) {
+            case 0x5CAC1CF7:
+                lbl_802006B0 = 2;
+                break;
+            case 0x184CED80:
+                lbl_802006B0 = 3;
+                break;
+            case 0x5CAC1C27:
+                lbl_802006B0 = 0;
+                break;
+            case 0x5CAC1C8F:
+                lbl_802006B0 = romTestCode(pROM, szCodeCZLE) ? 2 : 0;
+                break;
+            case 0x184CED18:
+                lbl_802006B0 = 1;
+                break;
+            case 0x54A8645A:
+            case 0x421E812A:
+            case 0x54A59B56:
+            case 0x421EB8E9:
+                lbl_802006B0 = 4;
+                break;
+            case 0x7E8BEE60:
+                lbl_802006B0 = 5;
+                break;
+        }
+
+        if (lbl_802006B0 & 1) {
+            bExpansion = true;
+        }
+    }
+
+    // Conker's Bad Fur Day
+    if (romTestCode(pROM, szCodeNFUE)) {
+        bExpansion = true;
+    }
+
+    if (bExpansion) {
+        nSizeRAM = 0x800000;
+        nSizeCacheROM = 0x400000;
+    } else {
+        nSizeRAM = 0x400000;
+        nSizeCacheROM = 0x800000;
+    }
+
+    if (simulatorGetArgument(SAT_CONTROLLER, &szExtra)) {
+        nSizeExtra = atoi(szExtra) << 20;
+
+        if (nSizeExtra > nSizeCacheROM - 0x100000) {
+            nSizeExtra = nSizeCacheROM - 0x100000;
+        }
+
+        nSizeRAM += nSizeExtra;
+    }
+
+    if (!ramSetSize(SYSTEM_RAM(pSystem), nSizeRAM)) {
+        return false;
+    }
+
+    return true;
+}
+
+bool systemGetInitialConfiguration(System* pSystem, Rom* pROM, s32 iConfig) {
+    char* szArgument;
+
+    if (!romGetCode(pROM, gSystemRomConfigurationList[iConfig].szCodeROM)) {
+        return false;
+    }
+
+    systemSetControllerConfiguration(&gSystemRomConfigurationList[iConfig], 0, 0, false, true);
+    gSystemRomConfigurationList[iConfig].storageDevice = 0;
+
+    // Ocarina of Time or Majora's Mask
+    if (gpSystem->eTypeROM == NZSJ || gpSystem->eTypeROM == NZSE || gpSystem->eTypeROM == NZSP) {
+        gSystemRomConfigurationList[iConfig].storageDevice = 2;
+
+        if (!simulatorGetArgument(SAT_VIBRATION, &szArgument) || *szArgument == '1') {
+            if (!simulatorGetArgument(SAT_RESET, &szArgument) || *szArgument == '0') {
+                systemSetControllerConfiguration(&gSystemRomConfigurationList[iConfig], 0x82828282, 0x82828282, true,
+                                                 true);
+            } else {
+                systemSetControllerConfiguration(&gSystemRomConfigurationList[iConfig], 0x80808080, 0x80808080, true,
+                                                 true);
+            }
+        } else {
+            if (!simulatorGetArgument(SAT_RESET, &szArgument) || *szArgument == '0') {
+                systemSetControllerConfiguration(&gSystemRomConfigurationList[iConfig], 0x02020202, 0x02020202, true,
+                                                 true);
+            } else {
+                systemSetControllerConfiguration(&gSystemRomConfigurationList[iConfig], 0, 0, true, true);
+            }
+        }
+    }
+
+    return true;
+}
+
+#endif
+
 
 #if IS_MM
 bool systemSetStorageDevice(System* pSystem, SystemObjectType eStorageDevice, void* pArgument, s32 param4)
@@ -448,6 +618,7 @@ bool systemCreateStorageDevice(System* pSystem, void* pArgument) {
 }
 #endif
 
+#if IS_OOT || IS_MT
 static bool systemSetupGameRAM(System* pSystem) {
     char* szExtra;
     bool bExpansion;
@@ -501,36 +672,9 @@ static bool systemSetupGameRAM(System* pSystem) {
 
     return true;
 }
+#endif
 
 #if IS_OOT || IS_MT
-static inline void systemSetControllerConfiguration(SystemRomConfig* pRomConfig, s32 controllerConfig1,
-                                                    s32 controllerConfig2, bool bSetControllerConfig,
-                                                    bool bSetRumbleConfig)
-#elif IS_MM
-static inline void systemSetControllerConfiguration(System* pSystem, SystemRomConfig* pRomConfig, s32 controllerConfig1,
-                                                    s32 controllerConfig2, bool bSetControllerConfig,
-                                                    bool bSetRumbleConfig)
-#endif
-{
-    s32 iConfigList;
-
-    if (bSetRumbleConfig) {
-        pRomConfig->rumbleConfiguration = 0;
-    }
-
-    for (iConfigList = 0; iConfigList < 4; iConfigList++) {
-        simulatorCopyControllerMap(SYSTEM_CONTROLLER(SYSTEM_PTR),
-                                   (u32*)pRomConfig->controllerConfiguration[iConfigList],
-                                   contMap[((controllerConfig1 >> (iConfigList * 8)) & 0x7F)]);
-        pRomConfig->rumbleConfiguration |= (1 << (iConfigList * 8)) & (controllerConfig1 >> 7);
-    }
-
-    if (bSetControllerConfig) {
-        pRomConfig->normalControllerConfig = controllerConfig2;
-        pRomConfig->currentControllerConfig = controllerConfig2;
-    }
-}
-
 static inline void systemSetupGameALL_Inline(void) {
     s32 iController;
 
@@ -540,6 +684,7 @@ static inline void systemSetupGameALL_Inline(void) {
                                    (u32*)&contMap[0]);
     }
 }
+#endif
 
 #if IS_OOT || IS_MT
 static bool systemSetupGameALL(System* pSystem) {
@@ -1294,7 +1439,7 @@ extern s32 lbl_801FF810;
 extern s32 lbl_801FF814;
 extern s32 lbl_80201508;
 extern s32 lbl_802006B0;
-extern s32 lbl_8014E550;
+extern u8 lbl_8014E550[0x300];
 
 static bool systemSetupGameALL(System* pSystem) {
     s32* pBuffer2;
@@ -1346,16 +1491,16 @@ static bool systemSetupGameALL(System* pSystem) {
 
     pSystem->unk_94 = 1;
 
-    if (gSystemRomConfigurationList.storageDevice & 1) {
+    if (gSystemRomConfigurationList[0].storageDevice & 1) {
         var_r25 = SOT_SRAM;
         var_r24 = 0x8000;
-    } else if (gSystemRomConfigurationList.storageDevice & 2) {
+    } else if (gSystemRomConfigurationList[0].storageDevice & 2) {
         var_r25 = SOT_FLASH;
         var_r24 = 0x40000;
-    } else if (gSystemRomConfigurationList.storageDevice & 4) {
+    } else if (gSystemRomConfigurationList[0].storageDevice & 4) {
         var_r25 = SOT_PAK;
         var_r24 = 0x200;
-    } else if (gSystemRomConfigurationList.storageDevice & 8) {
+    } else if (gSystemRomConfigurationList[0].storageDevice & 8) {
         var_r25 = SOT_PAK;
         var_r24 = 0x800;
     }
@@ -1484,14 +1629,14 @@ static bool systemSetupGameALL(System* pSystem) {
     }
 
     pCPU->nTimeRetrace = nTimeRetrace;
-    systemSetControllerConfiguration(pSystem, &gSystemRomConfigurationList,
-                                     gSystemRomConfigurationList.currentControllerConfig,
-                                     gSystemRomConfigurationList.currentControllerConfig, false, true);
+    systemSetControllerConfiguration(&gSystemRomConfigurationList[0],
+                                     gSystemRomConfigurationList[0].currentControllerConfig,
+                                     gSystemRomConfigurationList[0].currentControllerConfig, false, true);
 
     for (iController = 0; iController < 4; iController++) {
-        fn_80007118(gSystemRomConfigurationList.controllerConfiguration[iController], iController);
+        fn_80007118((u32*)gSystemRomConfigurationList[0].controllerConfiguration[iController], iController);
         //     simulatorSetControllerMap(SYSTEM_CONTROLLER(pSystem), iController,
-        //                               (u32*)&gSystemRomConfigurationList.controllerConfiguration[iController]);
+        //                               (u32*)&gSystemRomConfigurationList[0].controllerConfiguration[iController]);
     }
     return true;
 }
@@ -2023,7 +2168,7 @@ bool systemReset(System* pSystem) {
         romGetCode(SYSTEM_ROM(pSystem), (char*)&nTypeROM);
         pSystem->eTypeROM = nTypeROM;
 
-        if (!fn_80015340(pSystem)) {
+        if (!systemSetupGameRAM(pSystem)) {
             return false;
         }
 
