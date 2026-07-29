@@ -19,6 +19,21 @@ extern "C" {
 #define ROM_THREAD (sRomThread)
 #endif
 
+#if IS_MM
+//! Not in the original game: 4096 blocks of 0x2000 only cover a 32 MB image, and
+//! romLoadBlock()/romCopyImmediate() index aBlock[nOffset / 0x2000] with no bound
+//! check -- a larger ROM writes past the array into nTick / pCacheRAM / the cache
+//! bitfields. 8192 covers 64 MB (the OoTMM combo image).
+//! WARNING: this grows Rom by 0x10000 and shifts every field after aBlock. rom.c is
+//! the only object linked from source for mm-j that touches those fields; the sole
+//! remaining reader in the original binary is cpuExecuteIdle's `pROM->copy.nSize`
+//! test, which now lands on aBlock[4289].nSize -- always 0 for a 64 MB image, i.e.
+//! the same result as an idle ROM, so the behaviour is unchanged.
+#define ROM_BLOCK_COUNT 8192
+#else
+#define ROM_BLOCK_COUNT 6144
+#endif
+
 typedef bool UnknownCallbackFunc(void);
 typedef bool ProgressCallbackFunc(f32 progressPercent);
 
@@ -80,7 +95,7 @@ typedef struct Rom {
     /* 0x00214 0x00214 */ u32 nSize;
     /* 0x00218 0x00218 */ s32 unk_218;
     /* 0x0021C 0x0021C */ RomModeLoad eModeLoad;
-    /* 0x00220 0x00220 */ RomBlock aBlock[IS_MM ? 4096 : 6144];
+    /* 0x00220 0x00220 */ RomBlock aBlock[ROM_BLOCK_COUNT]; // MM: was 4096, see ROM_BLOCK_COUNT
     /* 0x18220 0x10220 */ u32 nTick;
     /* 0x18224 0x10224 */ u8* pCacheRAM;
     /* 0x18228 0x10228 */ u8 anBlockCachedRAM[IS_MM ? 1024 : 4096]; // Bitfield, one bit per block

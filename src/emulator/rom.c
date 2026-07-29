@@ -1,4 +1,5 @@
 #include "emulator/rom.h"
+#include "emulator/code_80083508.h"
 #include "emulator/codeRVL.h"
 #include "emulator/cpu.h"
 #include "emulator/errordisplay.h"
@@ -40,6 +41,47 @@ s32 fn_80050AFC(void) { return lbl_80200740; }
 //! one would grow .sbss and shift every r13-relative access in the code that is
 //! still linked from the original binary.
 #define ROM_IS_RAW(nHeader) ((nHeader) == 0x80371240 || (nHeader) == 0x37804012)
+
+//! Not in the original game. Largest ROM image kept fully resident in MEM2. Anything
+//! bigger is paged block by block (RLM_PART) straight from the channel's NAND content.
+//! Only applied to a raw image: a VC image is compressed, so its file offsets do not
+//! map to ROM offsets and it has to stay fully loaded.
+//! NOTE: romSetImage_Inline switches to the fn_8005F5F4 (help menu) allocator above
+//! 0x01B00000, so 32 MB already takes that path. Lower this to 0x01A00000 if the
+//! allocation turns out to fail on hardware.
+#define ROM_CACHE_MAX 0x02000000 // 32 MB
+
+//! Not in the original game. The ROM lives inside the channel's NAND content, not on a
+//! disc, so RLM_PART blocks are read with the content API rather than simulatorDVDRead()
+//! (a stub returning false, and living in vc64_RVL.c which is not linked for mm-j).
+//! CNTFileInfoNAND is 0x10 bytes and fits inside the otherwise unused DVDFileInfo field,
+//! so the Rom layout is unchanged.
+#define ROM_NAND_INFO(pROM) ((CNTFileInfoNAND*)&(pROM)->fileInfo)
+
+//! Not in the original game. Opens the persistent handle used by romLoadBlock(). The
+//! shared gCNTHandle is initialised by xlFileRVL the first time any file is opened,
+//! which has already happened by the time romSetImage() gets here.
+static bool romOpenNAND(Rom* pROM) {
+    return simulatorCNTOpenNAND(&gCNTHandle.handleNAND, pROM->acNameFile, ROM_NAND_INFO(pROM)) == 0;
+}
+
+//! Not in the original game. Synchronous replacement for simulatorDVDRead().
+static bool romReadNAND(Rom* pROM, void* pTarget, s32 nSize, s32 nOffset) {
+    CNTFileInfoNAND* pInfo = ROM_NAND_INFO(pROM);
+
+    if (pInfo->handle == NULL || (u32)nOffset >= pInfo->length) {
+        return false;
+    }
+
+    // contentReadNAND only bounds checks the start of the read. The caller rounds the
+    // size up to 32 bytes and the last block of the image is short, so clamp the tail
+    // here instead of letting IOS read past the content.
+    if ((u32)(nOffset + nSize) > pInfo->length) {
+        nSize = pInfo->length - nOffset;
+    }
+
+    return simulatorCNTReadNAND(pInfo, pTarget, nSize, nOffset) >= 0;
+}
 #endif
 
 static bool fn_80042064(void) {
@@ -139,11 +181,20 @@ static bool romMakeFreeCache(Rom* pROM, s32* piCache, RomCacheType eType) {
         if (!romFindFreeCache(pROM, &iCache, RCT_RAM)) {
             if (romFindOldestBlock(pROM, &iBlockOldest, RCT_RAM, 2)) {
                 iCache = pROM->aBlock[iBlockOldest].iCache;
+#if IS_MM
+                //! Not in the original game. The Wii has no ARAM: romSetBlockCache(RCT_ARAM)
+                //! only flips the bookkeeping bits here (the AR DMA the GameCube emulator
+                //! performed has no equivalent), so a block "moved to ARAM" would be served
+                //! back as garbage. Evict by dropping the least recently used RAM block
+                //! instead; it is transparently re-read from NAND on the next access.
+                romMarkBlockAsFree(pROM, iBlockOldest);
+#else
                 if (!romSetBlockCache(pROM, iBlockOldest, RCT_ARAM) &&
                     romFindOldestBlock(pROM, &iBlockOldest, RCT_RAM, 0)) {
                     iCache = pROM->aBlock[iBlockOldest].iCache;
                     romMarkBlockAsFree(pROM, iBlockOldest);
                 }
+#endif
             } else {
                 return false;
             }
@@ -237,12 +288,14 @@ static bool __romLoadBlock_Complete(Rom* pROM) {
     return true;
 }
 
+#if !IS_MM
 static void __romLoadBlock_CompleteGCN(long nResult, DVDFileInfo* fileInfo) {
     Rom* pROM = SYSTEM_ROM(gpSystem);
 
     pROM->load.nResult = nResult;
     pROM->load.bDone = true;
 }
+#endif
 
 static bool romLoadBlock(Rom* pROM, s32 iBlock, s32 iCache, UnknownCallbackFunc pCallback) {
     u8* anData;
@@ -264,16 +317,33 @@ static bool romLoadBlock(Rom* pROM, s32 iBlock, s32 iCache, UnknownCallbackFunc 
     pROM->load.pCallback = pCallback;
 
     if (pCallback == NULL) {
+#if IS_MM
+        if (!romReadNAND(pROM, anData, nSizeRead, nOffset + pROM->offsetToRom)) {
+#else
         if (!simulatorDVDRead(&pROM->fileInfo, anData, nSizeRead, nOffset + pROM->offsetToRom, NULL)) {
+#endif
             return false;
         }
     } else {
         pROM->load.nOffset = nOffset;
         pROM->load.nSizeRead = nSizeRead;
+#if IS_MM
+        //! Not in the original game. NAND content reads are synchronous, unlike the
+        //! asynchronous disc reads this wrapped. Perform the read now and hand the async
+        //! state machine its completion straight away, so romUpdate() finishes the block
+        //! on its next pass exactly as it would have after a DVD callback.
+        if (!romReadNAND(pROM, anData, nSizeRead, nOffset + pROM->offsetToRom)) {
+            return false;
+        }
+
+        pROM->load.nResult = nSizeRead;
+        pROM->load.bDone = true;
+#else
         if (!simulatorDVDRead(&pROM->fileInfo, anData, nSizeRead, nOffset + pROM->offsetToRom,
                               &__romLoadBlock_CompleteGCN)) {
             return false;
         }
+#endif
         return true;
     }
 
@@ -1141,11 +1211,19 @@ bool romSetImage(Rom* pROM, char* szNameFile) {
     return true;
 }
 #elif IS_MM
-static inline bool romSetImage_Inline(Rom* pROM, s32 nSize) {
+static inline bool romSetImage_Inline(Rom* pROM, s32 nSize, bool bRaw) {
     s32 nHeapSize;
 
     pROM->nSize = nSize;
     nHeapSize = ROUND_UP(pROM->nSize, 0x2000);
+
+    //! Not in the original game. Cap the resident image so it fits in MEM2; the block
+    //! cache then pages the rest on demand. romLoadFullOrPart() picks RLM_PART as soon
+    //! as nSize exceeds nSizeCacheRAM. See ROM_CACHE_MAX for why raw images only.
+    if (bRaw && nHeapSize > ROM_CACHE_MAX) {
+        nHeapSize = ROM_CACHE_MAX;
+    }
+
     pROM->nSizeCacheRAM = nHeapSize;
     pROM->nCountBlockRAM = nHeapSize / 0x2000;
 
@@ -1169,6 +1247,7 @@ bool romSetImage(Rom* pROM, char* szNameFile) {
     tXL_FILE* pFile;
     s32 iName;
     u32 nSize;
+    bool bRaw;
 
     for (iName = 0; (szNameFile[iName] != '\0') && (iName < 0x200); iName++) {
         pROM->acNameFile[iName] = szNameFile[iName];
@@ -1190,7 +1269,16 @@ bool romSetImage(Rom* pROM, char* szNameFile) {
     }
 
     // A plain ROM has no header: take its size from the file itself.
-    if (!romSetImage_Inline(pROM, ROM_IS_RAW(nSize) ? pROM->unk_218 : nSize >> 2)) {
+    bRaw = ROM_IS_RAW(nSize);
+
+    if (!romSetImage_Inline(pROM, bRaw ? pROM->unk_218 : nSize >> 2, bRaw)) {
+        return false;
+    }
+
+    //! Not in the original game. When the image does not fit in the cache it is served
+    //! block by block, so open the NAND handle romLoadBlock() reads through. This has to
+    //! happen before the romCopy() below: that call already goes through the block cache.
+    if ((s32)pROM->nSize > pROM->nSizeCacheRAM && !romOpenNAND(pROM)) {
         return false;
     }
 
