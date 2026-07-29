@@ -34,12 +34,6 @@ s32 lbl_80200740;
 
 s32 fn_80050AFC(void) { return lbl_80200740; }
 
-//! Not in the original game. A VC image starts with `(nSize << 2) | eCompression`,
-//! so a word matching the N64 magic (big endian `.z64` or byte swapped `.v64`) can
-//! only be a plain ROM. Derived on the fly rather than cached in a static: adding
-//! one would grow .sbss and shift every r13-relative access in the code that is
-//! still linked from the original binary.
-#define ROM_IS_RAW(nHeader) ((nHeader) == 0x80371240 || (nHeader) == 0x37804012)
 #endif
 
 static bool fn_80042064(void) {
@@ -495,35 +489,7 @@ static bool fn_80042C98(Rom* pROM) {
         simulatorShowLoad(1, pROM->acNameFile, (f32)(pROM->nSize - nSize) / (f32)pROM->nSize);
     }
 #elif IS_MM
-    if (!xlFileGet(FILE_PTR, &nBuffer, 4)) {
-        return false;
-    }
-
-    if (ROM_IS_RAW(nBuffer)) {
-        // A plain ROM has no compression header: read the image straight from
-        // offset 0, like the OoT build does.
-        if (!xlFileSetPosition(FILE_PTR, 0)) {
-            return false;
-        }
-
-        nSize = pROM->nSize;
-
-        while (nSize > 0) {
-            nSizeBytes = nSize;
-            if (nSize > 0x80000) {
-                nSizeBytes = 0x80000;
-            }
-
-            if (!xlFileGet(FILE_PTR, pCacheRAM, nSizeBytes)) {
-                return false;
-            }
-
-            nSize -= nSizeBytes;
-            pCacheRAM = &pCacheRAM[nSizeBytes];
-        }
-    } else {
-        fn_8008338C(pCacheRAM, SYSTEM_FRAME(gpSystem)->unk_20B0, 0x80000, fn_80051738, 0);
-    }
+    fn_8008338C(pCacheRAM, SYSTEM_FRAME(gpSystem)->unk_20B0, 0x80000, fn_80051738, 0);
 #endif
 
     if (!xlFileClose(&FILE_PTR)) {
@@ -1190,7 +1156,7 @@ bool romSetImage(Rom* pROM, char* szNameFile) {
     }
 
     // A plain ROM has no header: take its size from the file itself.
-    if (!romSetImage_Inline(pROM, ROM_IS_RAW(nSize) ? pROM->unk_218 : nSize >> 2)) {
+    if (!romSetImage_Inline(pROM,  nSize >> 2)) {
         return false;
     }
 
