@@ -74,9 +74,9 @@ void simulatorDEMODoneRender(void) {
 #elif IS_MM
     GXSetZMode(GX_ENABLE, GX_LEQUAL, GX_ENABLE);
     GXSetColorUpdate(GX_ENABLE);
-    GXCopyDisp(lbl_8017B1E0.unk_04[lbl_80200654 * 2], GX_TRUE);
+    GXCopyDisp(lbl_8017B1E0[lbl_80200654 * 2].unk_04, GX_TRUE);
     GXDrawDone();
-    VISetNextFrameBuffer(lbl_8017B1E0.unk_04[lbl_80200654 * 2]);
+    VISetNextFrameBuffer(lbl_8017B1E0[lbl_80200654 * 2].unk_04);
     VIFlush();
     VIWaitForRetrace();
     simulatorDEMOSwapBuffers();
@@ -305,7 +305,7 @@ bool xlMain(void) {
     char acNameROM[45];
     GXColor color;
     s32 sp2C;
-    s32 sp28;
+    s32 nSize1;
     s32 sp10;
     s32 nSize0;
     SystemMode eMode;
@@ -375,11 +375,11 @@ bool xlMain(void) {
     gnTickReset = OSGetTick();
 #endif
 
-    if (!xlHeapGetHeap1Free(&sp28)) { //1c
+#if IS_MM
+    if (!xlHeapGetHeap1Free(&nSize1)) { //1c
         return false;
     }
 
-#if IS_MM
     if (!xlHeapGetHeap2Free(&nSize0)) { //14
         return false;
     }
@@ -387,6 +387,10 @@ bool xlMain(void) {
     gpSystem = NULL;
 
     if (!xlObjectMake((void**)&gpCode, NULL, &gClassCode)) {
+        return false;
+    }
+#else
+    if (!xlHeapGetHeap1Free(&nSize0)) { //1c
         return false;
     }
 #endif
@@ -432,18 +436,24 @@ bool xlMain(void) {
         return false;
     }
 
+    
+
+#if IS_MM
     if (!xlHeapGetHeap1Free(&nSize0)) {
         return false;
     }
 
-#if IS_MM
     if (!xlHeapGetHeap2Free(&sp10)) {
         return false;
     }
 
-    xlHeapGetHeap1Free(&sp28);
+    xlHeapGetHeap1Free(&nSize1);
     xlHeapGetHeap2Free(&sp2C);
-    OSReport("%ld - %ld memory used\nmemory free: %ld - %ld\n", gnSizeHeapOS[0], gnSizeHeapOS[1], sp28, sp2C);
+    OSReport("%ld - %ld memory used\nmemory free: %ld - %ld\n", gnSizeHeapOS[0], gnSizeHeapOS[1], nSize1, sp2C);
+#else
+    if (!xlHeapGetHeap1Free(&nSize1)) {
+        return false;
+    }
 #endif
 
     if (!systemSetMode(gpSystem, SM_RUNNING)) {

@@ -40,6 +40,8 @@ static inline u32 getFBTotalSize(f32 aspectRatio) {
 }
 #endif
 
+
+#if IS_MM
 void xlCoreInitRenderMode(GXRenderModeObj* mode) {
     u32 nTickLast;
     VITvFormat nFormat;
@@ -88,6 +90,46 @@ void xlCoreInitRenderMode(GXRenderModeObj* mode) {
     rmode = &rmodeobj;
 }
 
+#else
+static void xlCoreInitRenderMode(GXRenderModeObj* mode) {
+    u32 nTickLast;
+
+    SCInit();
+
+    nTickLast = OSGetTick();
+    while (SCCheckStatus() == 1 && OS_TICKS_TO_MSEC(OSGetTick() - nTickLast) < 3000) {}
+
+    if (mode != NULL) {
+        rmode = mode;
+        return;
+    }
+
+    switch (VIGetTvFormat()) {
+        case VI_NTSC:
+            rmode = VIGetDTVStatus() && SCGetProgressiveMode() == 1 ? &GXNtsc480Prog : &GXNtsc480IntDf;
+            rmode->viXOrigin -= 32;
+            rmode->viWidth += 64;
+            break;
+        case VI_PAL:
+        case VI_MPAL:
+        case VI_EURGB60:
+            rmode = &GXPal528IntDf;
+            rmode->viXOrigin -= 32;
+            rmode->viWidth += 64;
+            rmode->xfbHeight = rmode->viHeight = 574;
+            rmode->viYOrigin = (s32)(574 - rmode->viHeight) / 2;
+            break;
+        default:
+            OSPanic("xlCoreRVL.c", 138, "DEMOInit: invalid TV format\n");
+            break;
+    }
+
+    rmode->efbHeight = 480;
+    GXAdjustForOverscan(rmode, &rmodeobj, 0, 0);
+    rmode = &rmodeobj;
+}
+#endif
+
 #if IS_MM
 static inline void xlCoreInitMem(void) {
     void* arenaLo;
@@ -130,26 +172,12 @@ extern u32 lbl_80200654;
 extern u32 lbl_801FF7DC;
 
 static inline void __xlCoreInitGX(void) {
-    f32 yScale;
-    f32 filterScale = 1.0f;
-    u8  vfilter[7];
-    int i;
-
     GXSetViewport(0.0f, 0.0f, rmode->fbWidth, rmode->efbHeight, 0.0f, 1.0f);
     GXSetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
     GXSetDispCopySrc(0, 0, rmode->fbWidth, rmode->efbHeight);
     GXSetDispCopyDst(rmode->fbWidth, rmode->xfbHeight);
     GXSetDispCopyYScale((f32)rmode->xfbHeight / (f32)rmode->efbHeight);
-
-    if (filterScale < 0.0f) filterScale = 0.0f;
-    if (filterScale > 2.0f) filterScale = 2.0f;
-    for (i = 0; i < 7; i++)
-        vfilter[i] = (u8)(filterScale * (f32)rmode->vfilter[i]);
-
-    GXSetCopyFilter(rmode->aa, rmode->sample_pattern, GX_TRUE, vfilter);
-
-    // GXSetFieldMode(rmode->field_rendering,
-    //                (rmode->aa == 0) ? GX_DISABLE : GX_ENABLE);
+    GXSetCopyFilter(rmode->aa, rmode->sample_pattern, GX_TRUE, rmode->vfilter);
 
     if (rmode->aa != 0) {
         GXSetPixelFmt(GX_PF_RGBA565_Z16, GX_ZC_LINEAR);
@@ -157,12 +185,8 @@ static inline void __xlCoreInitGX(void) {
         GXSetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
     }
 
-    GXCopyDisp(&lbl_8017B1E0[lbl_80200654 * 2 + 1].unk_00, GX_ZC_LINEAR);
-
     GXSetDispCopyGamma(GX_GM_1_0);
 
-
-#if !IS_MM
     VISetNextFrameBuffer(DemoFrameBuffer1);
     DemoCurrentBuffer = DemoFrameBuffer2;
     VIFlush();
@@ -171,10 +195,10 @@ static inline void __xlCoreInitGX(void) {
     if (rmode->viTVmode & 1) {
         VIWaitForRetrace();
     }
-#endif
 }
 
 bool xlCoreInitGX(void) {
+#if IS_MM
     u8  vfilter[7];
     int i;
     f32 filterScale = 1.0f;
@@ -201,6 +225,13 @@ bool xlCoreInitGX(void) {
     GXCopyDisp(lbl_8017B1E0[lbl_80200654].unk_04, GX_TRUE);
 
     GXSetDispCopyGamma(GX_GM_1_0);
+#else
+    __xlCoreInitGX();
+
+    VIConfigure(rmode);
+
+    return true;
+#endif
 
 }
 
