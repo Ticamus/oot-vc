@@ -371,7 +371,14 @@ typedef struct Frame {
     /* 0x3F234 */ u16* nTempBuffer;
     /* 0x3F238 */ u16* nCopyBuffer;
     /* 0x3F23C */ u8* nCameraBuffer;
-} Frame; // size = 0x3F240
+#if IS_MM
+    // MM_pad1 above adds 0x454 bytes not reflected in the OoT-derived offset
+    // comment on this field, so the gap size compensates for it.
+    /* 0x3F240 */ u8 unk_3F240[0x55928 - 0x3F240 - 0x454];
+    /* 0x55928 */ f32 unk_55928;
+    /* 0x5592C */ u8 unk_5592C[0x559B8 - 0x5592C];
+#endif
+} Frame; // size = 0x3F240 (0x559B8 for MM)
 
 extern _XL_OBJECTTYPE gClassFrame;
 extern bool gNoSwapBuffer;

@@ -4,6 +4,7 @@
 #include "emulator/vc64_RVL.h"
 #include "emulator/xlList.h"
 #include "emulator/xlObject.h"
+#include "macros.h"
 #include "revolution/types.h"
 
 #ifdef __cplusplus
@@ -278,7 +279,22 @@ typedef struct Rsp {
     /* 0x59C4 */ s16* QCbTable;
     /* 0x59C8 */ s16* QCrTable;
     /* 0x59CC */ struct __anon_0x58360* rgbaBuf;
-} Rsp; // size = 0x59D0
+#if IS_MM
+    /* 0x59D0 */ u8 unk_59D0[0x59D4 - 0x59D0];
+    /* 0x59D4 */ u8 unk_59D4;
+    /* 0x59D5 */ u8 unk_59D5[3];
+    /* 0x59D8 */ s32 unk_59D8;
+    /* 0x59DC */ s32 unk_59DC;
+    /* 0x59E0 */ s32 unk_59E0;
+    /* 0x59E4 */ s32 unk_59E4;
+    /* 0x59E8 */ s32 unk_59E8;
+    /* 0x59EC */ s32 unk_59EC;
+    /* 0x59F0 */ s32 unk_59F0;
+    /* 0x59F4 */ s32 unk_59F4;
+    /* 0x59F8 */ s32 unk_59F8;
+    /* 0x59FC */ s32 unk_59FC;
+#endif
+} Rsp; // size = 0x59D0 (0x5A00 for MM)
 
 typedef struct uObjBg_t {
     /* 0x00 */ u16 imageX;

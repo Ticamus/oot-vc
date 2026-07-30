@@ -333,7 +333,9 @@ struct Cpu {
     /* 0x113C0 */ CpuAddress aAddressCache[256];
     /* 0x11FC0 */ s32 nCountCodeHack;
     /* 0x11FC4 */ CpuCodeHack aCodeHack[32];
-    /* 0x12144 */ u8 unk_12144[0x3C];
+    /* 0x12144 */ u8 unk_12144[0x4];
+    /* 0x12148 */ s64 nTimeRetrace;
+    /* 0x12150 */ u8 unk_12150[0x30];
     /* 0x12180 */ u32 nFlagRAM;
     /* 0x12184 */ u32 nFlagCODE;
     /* 0x12188 */ u32 nCompileFlag;

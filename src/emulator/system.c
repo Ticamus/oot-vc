@@ -340,12 +340,13 @@ static inline void systemSetControllerConfiguration(SystemRomConfig* pRomConfig,
     }
 
     for (iConfigList = 0; iConfigList < 4; iConfigList++) {
-#if IS_OOT || IS_MT
+#if IS_MM
+        ((bool (*)(u32*, u32*))simulatorCopyControllerMap)(
+            (u32*)pRomConfig->controllerConfiguration[iConfigList],
+            contMap[((controllerConfig1 >> (iConfigList * 8)) & 0x7F)]);
+#else
         simulatorCopyControllerMap(SYSTEM_CONTROLLER(SYSTEM_PTR),
                                    (u32*)pRomConfig->controllerConfiguration[iConfigList],
-                                   contMap[((controllerConfig1 >> (iConfigList * 8)) & 0x7F)]);
-#elif IS_MM
-        simulatorCopyControllerMap((u32*)pRomConfig->controllerConfiguration[iConfigList],
                                    contMap[((controllerConfig1 >> (iConfigList * 8)) & 0x7F)]);
 #endif
         pRomConfig->rumbleConfiguration |= (1 << (iConfigList * 8)) & (controllerConfig1 >> 7);
@@ -1436,49 +1437,55 @@ static bool systemSetupGameALL(System* pSystem) {
 }
 #elif IS_MM
 extern s32 lbl_801FF810;
-extern s32 lbl_801FF814;
-extern s32 lbl_80201508;
+extern f32 lbl_801FF814;
+extern const f32 lbl_80201504;
+extern const f32 lbl_80201508;
 extern s32 lbl_802006B0;
 extern u8 lbl_8014E550[0x300];
 
 static bool systemSetupGameALL(System* pSystem) {
+    s32 nSize;
     s32* pBuffer2;
     s32* pBuffer;
 
     s32 nSizeSound;
     s32 iController;
-    s32 nSize;
-    u32* anMode;
     s32 i;
     u64 nTimeRetrace;
     char acCode[5];
     Cpu* pCPU;
     Rom* pROM;
-    Pif* pPIF;
+    Sound* pSound;
     s32 defaultConfiguration;
 
     SystemObjectType var_r25;
     s32 var_r24;
     u32 var_r23;
+    u32 nClockSpeed;
+    s32 nControllerConfig;
 
     pSystem->storageDevice = SOT_SRAM;
-    pCPU = SYSTEM_CPU(gpSystem);
+    pCPU = SYSTEM_CPU(pSystem);
     var_r25 = SOT_NONE;
-    pROM = SYSTEM_ROM(gpSystem);
+    pROM = SYSTEM_ROM(pSystem);
     var_r24 = 0;
-    pPIF = SYSTEM_PIF(gpSystem);
+    pSound = SYSTEM_SOUND(pSystem);
     var_r23 = 0x17D7;
 
-    if (!ramGetBuffer(SYSTEM_RAM(pSystem), (void**)&anMode, 0x300, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(pSystem), (void**)&pBuffer2, 0x300, NULL)) {
         return false;
     }
 
-    anMode[0] = gpSystem->eTypeROM == NZSP ? 0 : 1;
-    anMode[1] = 0;
-    anMode[2] = 0xB0000000;
-    anMode[3] = 0;
-    anMode[4] = 0x17D7;
-    anMode[5] = 1;
+    if (gpSystem->eTypeROM == NZSP) {
+        ((u32*)pBuffer2)[0] = 0;
+    } else {
+        ((u32*)pBuffer2)[0] = 1;
+    }
+    ((u32*)pBuffer2)[1] = 0;
+    ((u32*)pBuffer2)[2] = 0xB0000000;
+    ((u32*)pBuffer2)[3] = 0;
+    ((u32*)pBuffer2)[4] = 0x17D7;
+    ((u32*)pBuffer2)[5] = 1;
 
     nTimeRetrace = OSSecondsToTicks(1.0f / 60.0f);
 
@@ -1486,7 +1493,7 @@ static bool systemSetupGameALL(System* pSystem) {
         return false;
     }
 
-    anMode[6] = nSize;
+    ((u32*)pBuffer2)[6] = nSize;
     systemGetInitialConfiguration(pSystem, pROM, 0);
 
     pSystem->unk_94 = 1;
@@ -1510,21 +1517,41 @@ static bool systemSetupGameALL(System* pSystem) {
     }
 
     if (gpSystem->eTypeROM == NZSJ || gpSystem->eTypeROM == NZSE || gpSystem->eTypeROM == NZSP) {
-        Frame* pFrame = SYSTEM_FRAME(pSystem); // temp_r5
-        Rsp* pRSP = SYSTEM_RSP(pSystem); // temp_r23
+        Frame* pFrame = SYSTEM_FRAME(gpSystem); // temp_r5
+        Rsp* pRSP = SYSTEM_RSP(gpSystem); // temp_r23
 
         pSystem->storageDevice = SOT_ROM;
 
         pRSP->nMode = 0;
+        pRSP->unk_59D4 = 1;
+
+        nClockSpeed = OS_TIME_SPEED;
+        defaultConfiguration = nClockSpeed / 250 & ~3;
+        nSizeSound = (nClockSpeed / 125 & ~7) - nClockSpeed / 1000;
+
+        pRSP->unk_59DC = defaultConfiguration;
+        pRSP->unk_59D8 = 0;
+        pRSP->unk_59E4 = nSizeSound;
+        pRSP->unk_59E0 = 0;
+        pRSP->unk_59FC = nSizeSound;
+        pRSP->unk_59F8 = 0;
+        pRSP->unk_59EC = defaultConfiguration;
+        pRSP->unk_59E8 = 0;
+        pRSP->unk_59F4 = nClockSpeed / 1000;
+        pRSP->unk_59F0 = 0;
+
+        pFrame->unk_55928 = lbl_80201504;
+        pSound->unk_53C = 1;
+        pSound->unk_534 = 6;
 
         lbl_801FF810 = 2;
         lbl_801FF814 = lbl_80201508;
 
-        if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pBuffer2, 0x300, NULL)) {
+        if (!ramGetBuffer(SYSTEM_RAM(pSystem), (void**)&pBuffer2, 0x300, NULL)) {
             return false;
         }
-        var_r23 = 0x17D9;
         pBuffer2[4] = 0x17D9;
+        var_r23 = 0x17D9;
 
         if (lbl_802006B0 & 1) {
             if (!cpuSetCodeHack(pCPU, 0x801C6FC0, 0x95630000, -1)) {
@@ -1629,9 +1656,14 @@ static bool systemSetupGameALL(System* pSystem) {
     }
 
     pCPU->nTimeRetrace = nTimeRetrace;
-    systemSetControllerConfiguration(&gSystemRomConfigurationList[0],
-                                     gSystemRomConfigurationList[0].currentControllerConfig,
-                                     gSystemRomConfigurationList[0].currentControllerConfig, false, true);
+    nControllerConfig = gSystemRomConfigurationList[0].currentControllerConfig;
+    gSystemRomConfigurationList[0].rumbleConfiguration = 0;
+    for (iController = 0; iController < 4; iController++) {
+        ((bool (*)(u32*, u32*))simulatorCopyControllerMap)(
+            (u32*)gSystemRomConfigurationList[0].controllerConfiguration[iController],
+            contMap[(nControllerConfig >> (iController * 8)) & 0x7F]);
+        gSystemRomConfigurationList[0].rumbleConfiguration |= (1 << (iController * 8)) & (nControllerConfig >> 7);
+    }
 
     for (iController = 0; iController < 4; iController++) {
         fn_80007118((u32*)gSystemRomConfigurationList[0].controllerConfiguration[iController], iController);
@@ -1968,9 +2000,9 @@ static bool fn_8000A504(CpuBlock* pBlock, bool bUnknown) {
 #elif IS_MM
 static bool fn_8000A504(void) {
     u32 nAddressOffset[32];
-    u32 nAddress;
-    u32* pnAddress;
     u32 nAddressEnd;
+    u32* pnAddress;
+    u32 nAddress;
     s32 nCount;
     s32 i;
 

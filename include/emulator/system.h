@@ -284,11 +284,13 @@ typedef struct SystemException {
     /* 0x04 0x04 */ u32 nMask;
     /* 0x08 0x08 */ CpuExceptionCode eCode;
 #if IS_MM
-    /*  N/A 0x10 */ s32 unk_10;
+    /*  N/A 0x0C */ SystemInterruptType eType;
+    /* 0x0C 0x10 */ MIInterruptType eTypeMips;
+#else
+    /* 0x0C N/A  */ MIInterruptType eTypeMips;
+    /* 0x10 N/A  */ SystemInterruptType eType;
 #endif
-    /* 0x0C 0x14 */ MIInterruptType eTypeMips;
-    /* 0x10 0x18 */ SystemInterruptType eType;
-} SystemException; // size = 0x14 ; 0x1C
+} SystemException; // size = 0x14
 
 #if IS_OOT || IS_MT
 typedef struct System {
