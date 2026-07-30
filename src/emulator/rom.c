@@ -35,6 +35,12 @@ s32 lbl_80200740;
 
 s32 fn_80050AFC(void) { return lbl_80200740; }
 
+//! Not in the original game. A VC image starts with `(nSize << 2) | eCompression`,
+//! so a word matching the N64 magic (big endian `.z64` or byte swapped `.v64`) can
+//! only be a plain ROM. Derived on the fly rather than cached in a static: adding
+//! one would grow .sbss and shift every r13-relative access in the code that is
+//! still linked from the original binary.
+#define ROM_IS_RAW(nHeader) ((nHeader) == 0x80371240 || (nHeader) == 0x37804012)
 
 //! Not in the original game. Largest ROM image kept fully resident in MEM2. Anything
 //! bigger is paged block by block (RLM_PART) straight from the channel's NAND content.
