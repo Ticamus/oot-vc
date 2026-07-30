@@ -4,6 +4,7 @@
 // Note: video.h in oot-gc
 
 #include "emulator/xlObject.h"
+#include "macros.h"
 #include "revolution/types.h"
 
 #ifdef __cplusplus
@@ -38,7 +39,13 @@ bool viGet16(VI* pVI, u32 nAddress, s16* pData);
 bool viGet32(VI* pVI, u32 nAddress, s32* pData);
 bool viGet64(VI* pVI, u32 nAddress, s64* pData);
 
+#if IS_MM
+// MM takes a second argument whose meaning is not yet known; every caller in cpu.c
+// passes 0 except cpuExecuteUpdate, which passes 1.
+bool viForceRetrace(VI* pVI, s32 nUnknown);
+#else
 bool viForceRetrace(VI* pVI);
+#endif
 bool viEvent(VI* pVI, s32 nEvent, void* pArgument);
 
 extern _XL_OBJECTTYPE gClassVI;

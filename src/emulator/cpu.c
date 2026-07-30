@@ -16,6 +16,40 @@
 #include "math.h"
 #include "revolution/vi.h"
 
+// MM reaches its System through a back-pointer stored in Cpu, where OoT uses the
+// gpSystem global. Only usable where a Cpu* is in scope.
+#if IS_MM
+#define CPU_SYSTEM(pCPU) ((System*)(pCPU)->pSystem)
+#else
+#define CPU_SYSTEM(pCPU) (gpSystem)
+#endif
+
+// MM's viForceRetrace takes a second, still-unidentified argument.
+#if IS_MM
+#define VI_FORCE_RETRACE(pVI, nUnknown) viForceRetrace((pVI), (nUnknown))
+#else
+#define VI_FORCE_RETRACE(pVI, nUnknown) viForceRetrace(pVI)
+#endif
+
+// The tree heap and its allocation bitmap are file-scope globals in MM, but members
+// of Cpu in OoT.
+// MWCC lays .sbss out in reverse declaration order, and gHeapTree is at .sbss+0x0 in the
+// target, so it has to be declared after every other small static — see below, next to
+// __cpuRetraceCallback.
+#if IS_MM
+static u32 gaHeapTreeFlag[125];
+
+#define CPU_HEAP_TREE_FLAG(pCPU) gaHeapTreeFlag
+#define CPU_HEAP_TREE(pCPU) gHeapTree
+#define SYS_HEAP_TREE_FLAG() gaHeapTreeFlag
+#define SYS_HEAP_TREE() gHeapTree
+#else
+#define CPU_HEAP_TREE_FLAG(pCPU) ((pCPU)->aHeapTreeFlag)
+#define CPU_HEAP_TREE(pCPU) ((pCPU)->gHeapTree)
+#define SYS_HEAP_TREE_FLAG() (SYSTEM_CPU(gpSystem)->aHeapTreeFlag)
+#define SYS_HEAP_TREE() (SYSTEM_CPU(gpSystem)->gHeapTree)
+#endif
+
 static inline bool cpuMakeCachedAddress(Cpu* pCPU, s32 nAddressN64, s32 nAddressHost, CpuFunction* pFunction);
 static bool cpuFindCachedAddress(Cpu* pCPU, s32 nAddressN64, s32* pnAddressHost);
 static bool cpuSetTLB(Cpu* pCPU, s32 iEntry);
@@ -40,6 +74,52 @@ static inline bool treeForceCleanUp(Cpu* pCPU, CpuFunction* tree, s32 kill_limit
 static bool treeForceCleanNodes(Cpu* pCPU, CpuFunction* tree, s32 kill_limit);
 bool treePrintNode(Cpu* pCPU, CpuFunction* tree, s32 print_flag, s32* left, s32* right);
 static inline s32 treeMemory(Cpu* pCPU);
+
+#if IS_MM
+// MM's cpu.c leads its .data with gClassCPU, followed by the register-name tables used
+// by the MIPS disassembler (fn_8003F594). OoT defines gClassCPU further down and has no
+// disassembler at all.
+_XL_OBJECTTYPE gClassCPU = {
+    "CPU",
+    sizeof(Cpu),
+    NULL,
+    (EventFunc)cpuEvent,
+};
+
+static char* aszRegisterGPR[32] = {
+    "ZERO", "AT", "V0", "V1", "A0", "A1", "A2", "A3", "T0", "T1", "T2", "T3", "T4", "T5", "T6", "T7",
+    "S0",   "S1", "S2", "S3", "S4", "S5", "S6", "S7", "T8", "T9", "K0", "K1", "GP", "SP", "S8", "RA",
+};
+
+static char* aszRegisterFPR[32] = {
+    "F0",  "F1",  "F2",  "F3",  "F4",  "F5",  "F6",  "F7",  "F8",  "F9",  "F10", "F11", "F12", "F13",
+    "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24", "F25", "F26", "F27",
+    "F28", "F29", "F30",
+    // Reads "F21" in the original; presumably a typo for "F31".
+    "F21",
+};
+
+static char* aszRegisterCP0[32] = {
+    "INDEX",         "RANDOM",        "ENTRY-LO0",     "ENTRY-LO1",     "CONTEXT",
+    "PAGE-MASK",     "WIRED",         "(RESERVED-7)",  "BAD-VADDR",     "COUNT",
+    "ENTRY-HI",      "COMPARE",       "STATUS",        "CAUSE",         "EPC",
+    "uPC-ID",        "CONFIG",        "LLADDR",        "WATCH-LO",      "WATCH-HI",
+    "X-CONTEXT",     "(RESERVED-21)", "(RESERVED-22)", "(RESERVED-23)", "(RESERVED-24)",
+    "(RESERVED-25)", "ECC",           "CACHE-ERROR",   "TAG-LO",        "TAG-HI",
+    "ERROR-EPC",     "(RESERVED-31)",
+};
+
+static char* aszRegisterFCR[32] = {
+    "FCR0",             "FCR1 (RESERVED)",  "FCR2 (RESERVED)",  "FCR3 (RESERVED)",
+    "FCR4 (RESERVED)",  "FCR5 (RESERVED)",  "FCR6 (RESERVED)",  "FCR7 (RESERVED)",
+    "FCR8 (RESERVED)",  "FCR9 (RESERVED)",  "FCR10 (RESERVED)", "FCR11 (RESERVED)",
+    "FCR12 (RESERVED)", "FCR13 (RESERVED)", "FCR14 (RESERVED)", "FCR15 (RESERVED)",
+    "FCR16 (RESERVED)", "FCR17 (RESERVED)", "FCR18 (RESERVED)", "FCR19 (RESERVED)",
+    "FCR20 (RESERVED)", "FCR21 (RESERVED)", "FCR22 (RESERVED)", "FCR23 (RESERVED)",
+    "FCR24 (RESERVED)", "FCR25 (RESERVED)", "FCR26 (RESERVED)", "FCR27 (RESERVED)",
+    "FCR28 (RESERVED)", "FCR29 (RESERVED)", "FCR30 (RESERVED)", "FCR31",
+};
+#endif
 
 s64 ganMaskGetCP0[] = {
     0x000000008000003F, 0x000000000000003F, 0x000000003FFFFFFF, 0x000000003FFFFFFF, 0xFFFFFFFFFFFFFFF0,
@@ -511,12 +591,14 @@ void* jumptable_80171EFC[] = {
 void* jumptable_80171EFC[] = {0};
 #endif
 
+#if !IS_MM
 _XL_OBJECTTYPE gClassCPU = {
     "CPU",
     sizeof(Cpu),
     NULL,
     (EventFunc)cpuEvent,
 };
+#endif
 
 #ifndef NON_MATCHING
 void* jumptable_80171F48[] = {
@@ -575,17 +657,20 @@ static s32 cpuCompile_SDC_function;
 static s32 cpuCompile_LWL_function;
 static s32 cpuCompile_LWR_function;
 static VIRetraceCallback __cpuRetraceCallback;
+#if IS_MM
+static void* gHeapTree;
+#endif
 
 static inline bool cpuCheckInterrupts(Cpu* pCPU) {
     System* pSystem;
 
-    pSystem = gpSystem;
+    pSystem = CPU_SYSTEM(pCPU);
     if (pSystem->bException) {
         if (!systemCheckInterrupts(pSystem)) {
             return false;
         }
     } else {
-        viForceRetrace(SYSTEM_VI(pSystem));
+        VI_FORCE_RETRACE(SYSTEM_VI(pSystem), 0);
     }
 
     return true;
@@ -676,19 +761,30 @@ static bool cpuHackHandler(Cpu* pCPU) {
     s32 iSave1;
     s32 iSave2;
     s32 iLoad;
+#if IS_MM
+    // MM lays these two locals out the other way around.
+    s32 nSize;
+    u32* pnCode;
+#else
     u32* pnCode;
     s32 nSize;
+#endif
     s32 iCode;
 
     iSave1 = iSave2 = iLoad = 0;
 
-    if (xlObjectTest(SYSTEM_RAM(gpSystem), &gClassRAM) &&
-        ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pnCode, 0, NULL)) {
-        if (!ramGetSize(SYSTEM_RAM(gpSystem), &nSize)) {
+    if (xlObjectTest(SYSTEM_RAM(CPU_SYSTEM(pCPU)), &gClassRAM) &&
+        ramGetBuffer(SYSTEM_RAM(CPU_SYSTEM(pCPU)), (void**)&pnCode, 0, NULL)) {
+        if (!ramGetSize(SYSTEM_RAM(CPU_SYSTEM(pCPU)), &nSize)) {
             return false;
         }
 
+#if IS_MM
+        // MM does this bound unsigned.
+        for (iCode = 0; (u32)iCode < ((u32)nSize >> 2) && (iSave1 != -1 || iSave2 != -1 || iLoad != -1); iCode++) {
+#else
         for (iCode = 0; iCode < (nSize >> 2) && (iSave1 != -1 || iSave2 != -1 || iLoad != -1); iCode++) {
+#endif
             if (iSave1 != -1) {
                 if (pnCode[iCode] == ganOpcodeSaveFP1[iSave1]) {
                     iSave1++;
@@ -867,7 +963,11 @@ bool cpuException(Cpu* pCPU, CpuExceptionCode eCode, s32 nMaskIP) {
 
     pCPU->nMode &= ~8;
     if (!(pCPU->nMode & 0x10)) {
-        if (!cpuHackHandler(pCPU)) {}
+        if (!cpuHackHandler(pCPU)) {
+#if IS_MM
+            xlPostText("Exception: #### INTERNAL ERROR #### Cannot match exception-handler!", "cpu.c", 926);
+#endif
+        }
         pCPU->nMode |= 0x10;
     }
     if (pCPU->nWaitPC != 0xFFFFFFFF) {
@@ -891,7 +991,7 @@ bool cpuException(Cpu* pCPU, CpuExceptionCode eCode, s32 nMaskIP) {
     pCPU->nMode |= 4;
     pCPU->nMode |= 0x20;
 
-    if (!libraryCall(SYSTEM_LIBRARY(gpSystem), pCPU, -1)) {
+    if (!libraryCall(SYSTEM_LIBRARY(CPU_SYSTEM(pCPU)), pCPU, -1)) {
         return false;
     }
 
@@ -1222,7 +1322,7 @@ bool cpuSetRegisterCP0(Cpu* pCPU, s32 iRegister, s64 nData) {
             break;
         case 11:
             bFlag = true;
-            xlObjectEvent(gpSystem, 0x1001, (void*)3);
+            xlObjectEvent(CPU_SYSTEM(pCPU), 0x1001, (void*)3);
             if (pCPU->nMode & 1 || (nData & ganMaskSetCP0[11]) == 0) {
                 pCPU->nMode &= ~1;
             } else {
@@ -1233,8 +1333,8 @@ bool cpuSetRegisterCP0(Cpu* pCPU, s32 iRegister, s64 nData) {
             cpuSetCP0_Status(pCPU, nData & ganMaskSetCP0[12], 0);
             break;
         case 13:
-            xlObjectEvent(gpSystem, (nData & 0x100) ? 0x1000 : 0x1001, (void*)0);
-            xlObjectEvent(gpSystem, (nData & 0x200) ? 0x1000 : 0x1001, (void*)1);
+            xlObjectEvent(CPU_SYSTEM(pCPU), (nData & 0x100) ? 0x1000 : 0x1001, (void*)0);
+            xlObjectEvent(CPU_SYSTEM(pCPU), (nData & 0x200) ? 0x1000 : 0x1001, (void*)1);
             bFlag = true;
             break;
         case 14:
@@ -4094,7 +4194,7 @@ static bool cpuGetPPC(Cpu* pCPU, s32* pnAddress, CpuFunction* pFunction, s32* an
                     }
                     break;
                 case 0x0F: // lui
-                    if (!ramGetSize(SYSTEM_RAM(gpSystem), &nSize)) {
+                    if (!ramGetSize(SYSTEM_RAM(CPU_SYSTEM(pCPU)), &nSize)) {
                         return false;
                     }
                     if ((u32)MIPS_IMM_U16(nOpcode) >= 0x8000 &&
@@ -6013,7 +6113,7 @@ static bool cpuGetPPC(Cpu* pCPU, s32* pnAddress, CpuFunction* pFunction, s32* an
                     }
                     break;
                 case 0x1F: // library call
-                    if (libraryFunctionReplaced(SYSTEM_LIBRARY(gpSystem), MIPS_IMM_U16(nOpcode))) {
+                    if (libraryFunctionReplaced(SYSTEM_LIBRARY(CPU_SYSTEM(pCPU)), MIPS_IMM_U16(nOpcode))) {
                         pCPU->nFlagCODE |= 1;
                         pFunction->nAddress1 = nAddress + 8;
                     }
@@ -6915,7 +7015,7 @@ static bool cpuGetPPC(Cpu* pCPU, s32* pnAddress, CpuFunction* pFunction, s32* an
                         }
                         iRegisterA = MIPS_RS(nOpcode);
                         iRegisterB = MIPS_RT(nOpcode);
-                        if (!ramGetSize(SYSTEM_RAM(gpSystem), &nSize)) {
+                        if (!ramGetSize(SYSTEM_RAM(CPU_SYSTEM(pCPU)), &nSize)) {
                             return false;
                         }
                         EMIT_PPC(iCode, 0x80A30004 + OFFSETOF(pCPU, aGPR[iRegisterA]));
@@ -7014,7 +7114,7 @@ static bool cpuGetPPC(Cpu* pCPU, s32* pnAddress, CpuFunction* pFunction, s32* an
                         }
                         iRegisterA = MIPS_RS(nOpcode);
                         iRegisterB = MIPS_RT(nOpcode);
-                        if (!ramGetSize(SYSTEM_RAM(gpSystem), &nSize)) {
+                        if (!ramGetSize(SYSTEM_RAM(CPU_SYSTEM(pCPU)), &nSize)) {
                             return false;
                         }
                         EMIT_PPC(iCode, 0x80A30004 + OFFSETOF(pCPU, aGPR[iRegisterA]));
@@ -7158,7 +7258,7 @@ static bool cpuGetPPC(Cpu* pCPU, s32* pnAddress, CpuFunction* pFunction, s32* an
                         }
                         iRegisterA = MIPS_RS(nOpcode);
                         iRegisterB = MIPS_RT(nOpcode);
-                        if (!ramGetSize(SYSTEM_RAM(gpSystem), &nSize)) {
+                        if (!ramGetSize(SYSTEM_RAM(CPU_SYSTEM(pCPU)), &nSize)) {
                             return false;
                         }
                         EMIT_PPC(iCode, 0x80A30004 + OFFSETOF(pCPU, aGPR[iRegisterA]));
@@ -7262,7 +7362,7 @@ static bool cpuGetPPC(Cpu* pCPU, s32* pnAddress, CpuFunction* pFunction, s32* an
                         }
                         iRegisterA = MIPS_RS(nOpcode);
                         iRegisterB = MIPS_RT(nOpcode);
-                        if (!ramGetSize(SYSTEM_RAM(gpSystem), &nSize)) {
+                        if (!ramGetSize(SYSTEM_RAM(CPU_SYSTEM(pCPU)), &nSize)) {
                             return false;
                         }
                         EMIT_PPC(iCode, 0x80A30004 + OFFSETOF(pCPU, aGPR[iRegisterA]));
@@ -7463,7 +7563,7 @@ static bool cpuMakeFunction(Cpu* pCPU, CpuFunction** ppFunction, s32 nAddressN64
     }
 
     if (pFunction->pfCode == NULL) {
-        libraryTestFunction(SYSTEM_LIBRARY(gpSystem), pFunction);
+        libraryTestFunction(SYSTEM_LIBRARY(CPU_SYSTEM(pCPU)), pFunction);
         pFunction->nCountJump = 0;
         pFunction->aJump = aJump;
         pCPU->nFlagRAM = 0x20000000;
@@ -7808,7 +7908,11 @@ static inline bool treeKillReason(Cpu* pCPU, s32* value) {
         *value = 1;
         return true;
     }
+#if IS_MM
+    if (pCPU->survivalTimer % 400 == 0 && treeMemory(pCPU) > 4200000) {
+#else
     if (pCPU->survivalTimer % 400 == 0 && treeMemory(pCPU) > 3250000) {
+#endif
         *value = pCPU->survivalTimer - 200;
         return true;
     }
@@ -7816,24 +7920,65 @@ static inline bool treeKillReason(Cpu* pCPU, s32* value) {
     return false;
 }
 
+#if IS_MM
+// Unidentified MM-only helpers living in rsp.c and helpRVL.c, plus an rsp.c flag.
+// Declared here rather than in those modules' headers until they are named.
+extern s32 lbl_801FFF60;
+extern void fn_80054B64(s32 arg0);
+extern void fn_80085C84(void* pHelp);
+#endif
+
+// MM caches the System pointer in a local across all of cpuExecuteUpdate; OoT
+// re-reads the gpSystem global at each use.
+#if IS_MM
+#define UPDATE_SYSTEM pSystem
+#else
+#define UPDATE_SYSTEM CPU_SYSTEM(pCPU)
+#endif
+
+#if IS_MM
+// MM passes a 64-bit OSGetTime() stamp rather than a 32-bit OSGetTick() count.
+//! @note mm-j links src/emulator/cpu_execute_update.c instead of this body; keep the two
+//! in sync until cpu.c as a whole can be linked.
+static bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
+#else
 static bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u32 nCount) {
+#endif
     RspUpdateMode eModeUpdate;
     s32 nDelta;
     u32 nCounter;
     u32 nCompare;
 
     u32 nCounterDelta;
+#if IS_MM
+    System* pSystem;
+#endif
     CpuTreeRoot* root;
 
-    if (!romUpdate(SYSTEM_ROM(gpSystem))) {
+#if IS_MM
+    pSystem = CPU_SYSTEM(pCPU);
+#endif
+
+    if (!romUpdate(SYSTEM_ROM(UPDATE_SYSTEM))) {
         return false;
     }
 
-    eModeUpdate = ((pCPU->nMode & 0x80) && !gpSystem->bException) ? RUM_IDLE : RUM_NONE;
+#if IS_MM
+    // MM drives the RSP through two helpers in rsp.c/helpRVL.c rather than rspUpdate,
+    // and ignores their results. Note it reads gpSystem directly here.
+    if (!pSystem->bException) {
+        if (lbl_801FFF60 == 0) {
+            fn_80054B64(0);
+        }
+        fn_80085C84(gpSystem->apObject[SOT_HELP]);
+    }
+#else
+    eModeUpdate = ((pCPU->nMode & 0x80) && !UPDATE_SYSTEM->bException) ? RUM_IDLE : RUM_NONE;
 
-    if (!rspUpdate(SYSTEM_RSP(gpSystem), eModeUpdate)) {
+    if (!rspUpdate(SYSTEM_RSP(UPDATE_SYSTEM), eModeUpdate)) {
         return false;
     }
+#endif
 
     root = pCPU->gTree;
     treeTimerCheck(pCPU);
@@ -7846,14 +7991,28 @@ static bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u32 nCount) {
         }
     }
 
+#if IS_MM
+    // Accumulated back into nTime rather than a separate delta local: MWCC then keeps the
+    // difference in nTime's callee-saved pair, as the target does. The one remaining
+    // difference is the operand order of the commutative addc below.
+    if (nTime > pCPU->nTimeLast) {
+        nTime = nTime - pCPU->nTimeLast;
+    } else {
+        nTime = (-1 - pCPU->nTimeLast) + nTime;
+    }
+
+    pCPU->nTimeTotal += nTime;
+    nCounterDelta = (pCPU->nTimeTotal * 77) / 100;
+#else
     if (nCount > pCPU->nTickLast) {
         nCounterDelta = (f32)((nCount - pCPU->nTickLast) * 4);
     } else {
         nCounterDelta = (f32)(((-1 - pCPU->nTickLast) + nCount) * 4);
     }
+#endif
 
     if ((pCPU->nMode & 0x40) && pCPU->nRetraceUsed != pCPU->nRetrace) {
-        if (viForceRetrace(SYSTEM_VI(gpSystem))) {
+        if (VI_FORCE_RETRACE(SYSTEM_VI(UPDATE_SYSTEM), 1)) {
             nDelta = pCPU->nRetrace - pCPU->nRetraceUsed;
             if (nDelta < 0) {
                 nDelta = -nDelta;
@@ -7870,19 +8029,48 @@ static bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u32 nCount) {
     if (pCPU->nMode & 1) {
         nCounter = pCPU->anCP0[9];
         nCompare = pCPU->anCP0[11];
+#if IS_MM
+        // MM compares the delta itself rather than nCounter + delta, and reaches the
+        // System through pCPU rather than the cached local.
+        if (nCounterDelta >= nCounter) {
+            if (nCounter < nCompare && nCounterDelta >= nCompare) {
+                pCPU->nMode &= ~1;
+                xlObjectEvent(CPU_SYSTEM(pCPU), 0x1000, (void*)3);
+            }
+        } else if (nCounter < nCompare) {
+            pCPU->nMode &= ~1;
+            xlObjectEvent(CPU_SYSTEM(pCPU), 0x1000, (void*)3);
+        }
+#else
         if ((nCounter <= nCompare && nCounter + nCounterDelta >= nCompare) ||
             (nCounter >= nCompare && nCounter + nCounterDelta >= nCompare && nCounter + nCounterDelta < nCounter)) {
             pCPU->nMode &= ~1;
-            xlObjectEvent(gpSystem, 0x1000, (void*)3);
+            xlObjectEvent(UPDATE_SYSTEM, 0x1000, (void*)3);
         }
+#endif
     }
+#if IS_MM
+    // MM assigns the delta rather than accumulating into the counter.
+    pCPU->anCP0[9] = nCounterDelta;
+#else
     pCPU->anCP0[9] += nCounterDelta;
+#endif
 
+#if IS_MM
+    // Like the RSP block above, this one goes through the gpSystem global rather than
+    // the cached local.
     if ((pCPU->nMode & 8) && !(pCPU->nMode & 4) && gpSystem->bException) {
         if (!systemCheckInterrupts(gpSystem)) {
             return false;
         }
     }
+#else
+    if ((pCPU->nMode & 8) && !(pCPU->nMode & 4) && UPDATE_SYSTEM->bException) {
+        if (!systemCheckInterrupts(UPDATE_SYSTEM)) {
+            return false;
+        }
+    }
+#endif
 
     if (pCPU->nMode & 4) {
         pCPU->nMode &= ~0x84;
@@ -7892,6 +8080,8 @@ static bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u32 nCount) {
     }
     return true;
 }
+
+#undef UPDATE_SYSTEM
 
 static bool cpuCompile_DSLLV(Cpu* pCPU, s32* addressGCN) {
     s32* compile;
@@ -9031,6 +9221,98 @@ static inline cpuUnknownMarioKartFrameSet(SystemRomType eTypeROM, void* pFrame, 
     }
 }
 
+#if IS_MM
+// MM-only MIPS disassembler, called from another translation unit. Formats one
+// instruction into eight 64-byte scratch fields and reports the assembled line.
+// WIP: only a few opcode forms are decoded so far.
+bool fn_8003F594(Cpu* pCPU, s32 nUnused, s32 nAddress) {
+    char aszField[8][64];
+    char szLine[256];
+    u32* pnBuffer;
+    u32 nOpcode;
+    CpuDevice* pDevice;
+
+    aszField[0][0] = '\0';
+    aszField[1][0] = '\0';
+    aszField[2][0] = '\0';
+    aszField[3][0] = '\0';
+    aszField[4][0] = '\0';
+    aszField[5][0] = '\0';
+    aszField[6][0] = '\0';
+    aszField[7][0] = '\0';
+
+    pDevice = pCPU->apDevice[pCPU->aiDevice[nAddress >> 16]];
+    if (pDevice->pObject != SYSTEM_RAM(CPU_SYSTEM(pCPU)) ||
+        !ramGetBuffer(SYSTEM_RAM(CPU_SYSTEM(pCPU)), (void**)&pnBuffer, nAddress + pDevice->nOffsetAddress,
+                      NULL)) {
+        return false;
+    }
+
+    nOpcode = *pnBuffer;
+
+    switch (MIPS_OP(nOpcode)) {
+        case 0x00: // SPECIAL
+            switch (MIPS_FUNCT(nOpcode)) {
+                case 0x00: // sll
+                    if (nOpcode == 0) {
+                        strcpy(aszField[0], "NOP");
+                        break;
+                    }
+                    strcpy(aszField[0], "SLL");
+                    strcpy(aszField[1], aszRegisterGPR[MIPS_RD(nOpcode)]);
+                    strcpy(aszField[2], aszRegisterGPR[MIPS_RT(nOpcode)]);
+                    sprintf(aszField[3], "%d", MIPS_SA(nOpcode));
+                    break;
+                case 0x02: // srl
+                    strcpy(aszField[0], "SRL");
+                    strcpy(aszField[1], aszRegisterGPR[MIPS_RD(nOpcode)]);
+                    strcpy(aszField[2], aszRegisterGPR[MIPS_RT(nOpcode)]);
+                    sprintf(aszField[3], "%d", MIPS_SA(nOpcode));
+                    break;
+                case 0x03: // sra
+                    strcpy(aszField[0], "SRA");
+                    strcpy(aszField[1], aszRegisterGPR[MIPS_RD(nOpcode)]);
+                    strcpy(aszField[2], aszRegisterGPR[MIPS_RT(nOpcode)]);
+                    sprintf(aszField[3], "%d", MIPS_SA(nOpcode));
+                    break;
+                case 0x10: // mfhi
+                    strcpy(aszField[0], "MFHI");
+                    strcpy(aszField[1], aszRegisterGPR[MIPS_RD(nOpcode)]);
+                    break;
+                case 0x12: // mflo
+                    strcpy(aszField[0], "MFLO");
+                    strcpy(aszField[1], aszRegisterGPR[MIPS_RD(nOpcode)]);
+                    break;
+            }
+            break;
+        case 0x10: // COP0
+            strcpy(aszField[0], "MFC0");
+            strcpy(aszField[1], aszRegisterGPR[MIPS_RT(nOpcode)]);
+            strcpy(aszField[2], aszRegisterCP0[MIPS_RD(nOpcode)]);
+            break;
+        case 0x11: // COP1
+            switch (MIPS_RS(nOpcode)) {
+                case 0x02: // cfc1
+                    strcpy(aszField[0], "CFC1");
+                    strcpy(aszField[1], aszRegisterGPR[MIPS_RT(nOpcode)]);
+                    strcpy(aszField[2], aszRegisterFCR[MIPS_FS(nOpcode)]);
+                    break;
+                default:
+                    strcpy(aszField[0], "MFC1");
+                    strcpy(aszField[1], aszRegisterGPR[MIPS_RT(nOpcode)]);
+                    strcpy(aszField[2], aszRegisterFPR[MIPS_FS(nOpcode)]);
+                    break;
+            }
+            break;
+    }
+
+    sprintf(szLine, "%s   %08x      %s%s%s%c%s%c%s%c", aszField[6], nOpcode, aszField[0], aszField[5],
+            aszField[1], aszField[2][0] != '\0' ? ',' : ' ', aszField[2], ' ', aszField[3], ' ');
+    OSReport("%s", szLine);
+    return true;
+}
+#endif
+
 s32 cpuExecuteOpcode(Cpu* pCPU, s32 nCount0, s32 nAddressN64, s32 nAddressGCN) {
     s32 pad1[2];
     u64 save;
@@ -9048,18 +9330,26 @@ s32 cpuExecuteOpcode(Cpu* pCPU, s32 nCount0, s32 nAddressN64, s32 nAddressGCN) {
     s64 nData64;
     s32 nAddress;
     CpuFunction* pFunction;
+#if IS_MM
+    s64 nTime;
+#else
     s32 nTick;
+#endif
     s32 pad3[3];
 
     restore = 0;
+#if IS_MM
+    nTime = OSGetTime();
+#else
     nTick = OSGetTick();
+#endif
     if (pCPU->nWaitPC != 0) {
         pCPU->nMode |= 8;
     } else {
         pCPU->nMode &= ~8;
     }
 
-    cpuUnknownMarioKartFrameSet(gpSystem->eTypeROM, SYSTEM_FRAME(gpSystem), nAddressN64);
+    cpuUnknownMarioKartFrameSet(CPU_SYSTEM(pCPU)->eTypeROM, SYSTEM_FRAME(CPU_SYSTEM(pCPU)), nAddressN64);
 
     aiDevice = pCPU->aiDevice;
     apDevice = pCPU->apDevice;
@@ -10278,7 +10568,7 @@ s32 cpuExecuteOpcode(Cpu* pCPU, s32 nCount0, s32 nAddressN64, s32 nAddressGCN) {
             pCPU->aGPR[MIPS_RT(nOpcode)].u64 = pCPU->aGPR[MIPS_RS(nOpcode)].u64 + MIPS_IMM_S16(nOpcode);
             break;
         case 0x1F: // library call
-            if (!libraryCall(SYSTEM_LIBRARY(gpSystem), pCPU, MIPS_IMM_S16(nOpcode))) {
+            if (!libraryCall(SYSTEM_LIBRARY(CPU_SYSTEM(pCPU)), pCPU, MIPS_IMM_S16(nOpcode))) {
                 return false;
             }
             break;
@@ -10350,7 +10640,7 @@ s32 cpuExecuteOpcode(Cpu* pCPU, s32 nCount0, s32 nAddressN64, s32 nAddressGCN) {
             break;
         case 0x25: // lhu
             nAddress = pCPU->aGPR[MIPS_RS(nOpcode)].s32 + MIPS_IMM_S16(nOpcode);
-            if (frameGetDepth(SYSTEM_FRAME(gpSystem), (u16*)&nData16, nAddress)) {
+            if (frameGetDepth(SYSTEM_FRAME(CPU_SYSTEM(pCPU)), (u16*)&nData16, nAddress)) {
                 pCPU->aGPR[MIPS_RT(nOpcode)].u32 = (u16)nData16;
             } else {
                 if (CPU_DEVICE_GET16(apDevice, aiDevice, nAddress, &nData16)) {
@@ -10484,14 +10774,22 @@ s32 cpuExecuteOpcode(Cpu* pCPU, s32 nCount0, s32 nAddressN64, s32 nAddressGCN) {
             break;
     }
 
+#if IS_MM
+    if (!cpuExecuteUpdate(pCPU, &nAddressGCN, nTime + 1)) {
+#else
     if (!cpuExecuteUpdate(pCPU, &nAddressGCN, nTick + 1)) {
+#endif
         return false;
     }
     if (restore) {
         pCPU->aGPR[31].u64 = save;
     }
     pCPU->nWaitPC = -1;
+#if IS_MM
+    pCPU->nTimeLast = nTime;
+#else
     pCPU->nTickLast = OSGetTick();
+#endif
 
     PAD_STACK();
     PAD_STACK();
@@ -10499,11 +10797,22 @@ s32 cpuExecuteOpcode(Cpu* pCPU, s32 nCount0, s32 nAddressN64, s32 nAddressGCN) {
 }
 
 static s32 cpuExecuteIdle(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGCN) {
+#if IS_MM
+    u64 idleTime;
+#endif
     Rom* pROM;
 
-    pROM = SYSTEM_ROM(gpSystem);
+    pROM = SYSTEM_ROM(CPU_SYSTEM(pCPU));
 
+#if IS_MM
+    if (!fn_80007280(0, 0, 0, 1)) {
+        return false;
+    }
+
+    idleTime = OSGetTime();
+#else
     nCount = OSGetTick();
+#endif
     if (pCPU->nWaitPC != 0) {
         pCPU->nMode |= 8;
     } else {
@@ -10513,19 +10822,33 @@ static s32 cpuExecuteIdle(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGC
     pCPU->nMode |= 0x80;
     pCPU->nPC = nAddressN64;
     if (!(pCPU->nMode & 0x40) && pROM->copy.nSize == 0) {
-        viForceRetrace(SYSTEM_VI(gpSystem));
+        VI_FORCE_RETRACE(SYSTEM_VI(CPU_SYSTEM(pCPU)), 0);
     }
 
+#if IS_MM
+    if (!cpuExecuteUpdate(pCPU, &nAddressGCN, idleTime)) {
+        return false;
+    }
+
+    pCPU->nTimeLast = idleTime;
+#else
     if (!cpuExecuteUpdate(pCPU, &nAddressGCN, nCount)) {
         return false;
     }
 
     pCPU->nTickLast = OSGetTick();
+#endif
     return nAddressGCN;
 }
 
+//! @note mm-j links src/emulator/cpu_execute_jump.c instead of this body; keep the two
+//! in sync until cpu.c as a whole can be linked.
 static s32 cpuExecuteJump(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGCN) {
+#if IS_MM
+    s64 curTime = OSGetTime();
+#else
     nCount = OSGetTick();
+#endif
 
     if (pCPU->nWaitPC != 0) {
         pCPU->nMode |= 8;
@@ -10536,11 +10859,19 @@ static s32 cpuExecuteJump(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGC
     pCPU->nMode |= 4;
     pCPU->nPC = nAddressN64;
 
+#if IS_MM
+    if (!cpuExecuteUpdate(pCPU, &nAddressGCN, curTime)) {
+        return false;
+    }
+
+    pCPU->nTimeLast = curTime;
+#else
     if (!cpuExecuteUpdate(pCPU, &nAddressGCN, nCount)) {
         return false;
     }
 
     pCPU->nTickLast = OSGetTick();
+#endif
     return nAddressGCN;
 }
 
@@ -10562,8 +10893,13 @@ static s32 cpuExecuteCall(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGC
     CpuFunction* node;
     CpuCallerID* block;
     s32 nDeltaAddress;
+#if IS_MM
+    s64 callTime = OSGetTime();
+#endif
 
+#if !IS_MM
     nCount = OSGetTick();
+#endif
     if (pCPU->nWaitPC != 0) {
         pCPU->nMode |= 8;
     } else {
@@ -10613,9 +10949,15 @@ static s32 cpuExecuteCall(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGC
     //! known as a "VC Crash".
     //!
     //! For more details, see https://pastebin.com/V6ANmXt8
+#if IS_MM
+    if (!cpuExecuteUpdate(pCPU, &nAddressGCN, callTime)) {
+        return false;
+    }
+#else
     if (!cpuExecuteUpdate(pCPU, &nAddressGCN, nCount)) {
         return false;
     }
+#endif
 
     nDeltaAddress = (u8*)nAddressGCN - (u8*)&anCode[3];
     if (saveGCN) {
@@ -10628,7 +10970,11 @@ static s32 cpuExecuteCall(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGC
         ICInvalidateRange(anCode, 12);
     }
 
+#if IS_MM
+    pCPU->nTimeLast = callTime;
+#else
     pCPU->nTickLast = OSGetTick();
+#endif
 
     return nAddressGCN;
 }
@@ -11174,7 +11520,7 @@ static bool cpuMakeLink(Cpu* pCPU, CpuExecuteFunc* ppfLink, CpuExecuteFunc pfFun
     *pnCode++ = 0x60630000 | ((u32)pCPU & 0xFFFF); // ori r3,r3,pCPU@l
     *pnCode++ = 0x80830000 + OFFSETOF(pCPU, survivalTimer); // lwz r4,survivalTimer(r3)
 
-    nData = (u32)(SYSTEM_RAM(gpSystem)->pBuffer) - 0x80000000;
+    nData = (u32)(SYSTEM_RAM(CPU_SYSTEM(pCPU))->pBuffer) - 0x80000000;
     *pnCode++ = 0x3D000000 | ((u32)nData >> 16); // lis r8,ramOffset@h
     if (pCPU->nCompileFlag & 0x100) {
         *pnCode++ = 0x3D20DFFF; // lis r9,0xDFFF
@@ -11293,7 +11639,7 @@ bool cpuExecute(Cpu* pCPU, s32 nCount, u64 nAddressBreak) {
 
         *pnCode++ = 0x80830000 + OFFSETOF(pCPU, survivalTimer); // lwz r4,survivalTimer(r3)
 
-        nData = (u32)(SYSTEM_RAM(gpSystem)->pBuffer) - 0x80000000;
+        nData = (u32)(SYSTEM_RAM(CPU_SYSTEM(pCPU))->pBuffer) - 0x80000000;
         *pnCode++ = 0x3D000000 | ((u32)nData >> 16); // lis r8,ramOffset@h
         *pnCode++ = 0x61080000 | ((u32)nData & 0xFFFF); // ori r8,r8,ramOffset@l
 
@@ -11582,11 +11928,16 @@ static inline bool cpuHeapReset(u32* array, s32 count) {
     return true;
 }
 
+//! @note mm-j links src/emulator/cpu_reset.c instead of this body; keep the two in sync
+//! until cpu.c as a whole can be linked.
 bool cpuReset(Cpu* pCPU) {
     s32 iRegister;
     s32 iTLB;
 
+#if !IS_MM
+    // MM's cpuReset does not clear nTick.
     pCPU->nTick = 0;
+#endif
     pCPU->nCountCodeHack = 0;
     pCPU->nMode = 0x40;
     pCPU->pfStep = NULL;
@@ -11636,7 +11987,12 @@ bool cpuReset(Cpu* pCPU) {
     if (!cpuHeapReset(pCPU->aHeap1Flag, ARRAY_COUNT(pCPU->aHeap1Flag))) {
         return false;
     }
+    // Sized to match aHeap1Flag: 192 blocks for OoT, 256 for MM.
+#if IS_MM
+    if (pCPU->gHeap1 == NULL && !xlHeapTake(&pCPU->gHeap1, 0x400000 | 0x30000000)) {
+#else
     if (pCPU->gHeap1 == NULL && !xlHeapTake(&pCPU->gHeap1, 0x300000 | 0x30000000)) {
+#endif
         return false;
     }
 
@@ -11647,9 +12003,17 @@ bool cpuReset(Cpu* pCPU) {
         return false;
     }
 
-    if (!cpuHeapReset(pCPU->aHeapTreeFlag, ARRAY_COUNT(pCPU->aHeapTreeFlag))) {
+    if (!cpuHeapReset(CPU_HEAP_TREE_FLAG(pCPU), ARRAY_COUNT(CPU_HEAP_TREE_FLAG(pCPU)))) {
         return false;
     }
+
+#if IS_MM
+    // MM allocates the tree heap here, alongside gHeap1/gHeap2; OoT defers it to
+    // cpuEvent.
+    if (CPU_HEAP_TREE(pCPU) == NULL && !xlHeapTake((void**)&CPU_HEAP_TREE(pCPU), 0x46500 | 0x30000000)) {
+        return false;
+    }
+#endif
 
     if (pCPU->gTree != NULL) {
         treeKill(pCPU);
@@ -11657,6 +12021,8 @@ bool cpuReset(Cpu* pCPU) {
 
     pCPU->nCompileFlag = 1;
 
+#if !IS_MM
+    // MM's Cpu has no such member and its cpuReset does not touch it.
     pCPU->unk_12228[0] = 0;
     pCPU->unk_12228[1] = 0;
     pCPU->unk_12228[2] = 0;
@@ -11675,6 +12041,7 @@ bool cpuReset(Cpu* pCPU) {
     pCPU->unk_12228[15] = 0;
     pCPU->unk_12228[16] = 0;
     pCPU->unk_12228[17] = 0;
+#endif
 
     return true;
 }
@@ -11738,7 +12105,7 @@ bool cpuEvent(Cpu* pCPU, s32 nEvent, void* pArgument) {
                 return false;
             }
 
-            if (!xlHeapTake((void**)&pCPU->gHeapTree, 0x46500 | 0x30000000)) {
+            if (!xlHeapTake((void**)&CPU_HEAP_TREE(pCPU), 0x46500 | 0x30000000)) {
                 return false;
             }
             break;
@@ -11785,15 +12152,15 @@ bool cpuGetAddressOffset(Cpu* pCPU, s32* pnOffset, u32 nAddress) {
 bool cpuGetAddressBuffer(Cpu* pCPU, void** ppBuffer, u32 nAddress) {
     CpuDevice* pDevice = pCPU->apDevice[pCPU->aiDevice[nAddress >> DEVICE_ADDRESS_OFFSET_BITS]];
 
-    if ((Ram*)pDevice->pObject == SYSTEM_RAM(gpSystem)) {
+    if ((Ram*)pDevice->pObject == SYSTEM_RAM(CPU_SYSTEM(pCPU))) {
         if (!ramGetBuffer(pDevice->pObject, ppBuffer, nAddress + pDevice->nOffsetAddress, NULL)) {
             return false;
         }
-    } else if ((Rom*)pDevice->pObject == SYSTEM_ROM(gpSystem)) {
+    } else if ((Rom*)pDevice->pObject == SYSTEM_ROM(CPU_SYSTEM(pCPU))) {
         if (!romGetBuffer(pDevice->pObject, ppBuffer, nAddress + pDevice->nOffsetAddress, NULL)) {
             return false;
         }
-    } else if ((Rsp*)pDevice->pObject == SYSTEM_RSP(gpSystem)) {
+    } else if ((Rsp*)pDevice->pObject == SYSTEM_RSP(CPU_SYSTEM(pCPU))) {
         if (!rspGetBuffer(pDevice->pObject, ppBuffer, nAddress + pDevice->nOffsetAddress, NULL)) {
             return false;
         }
@@ -11920,7 +12287,11 @@ bool cpuHeapTake(void* heap, Cpu* pCPU, CpuFunction* pFunction, int memory_size)
     second = 0;
     for (;;) {
         if (pFunction->heapID == -1) {
+#if IS_MM
+            if (memory_size > 0x3C00) {
+#else
             if (memory_size > 0x3200) {
+#endif
                 pFunction->heapID = 2;
             } else {
                 pFunction->heapID = 1;
@@ -12054,7 +12425,7 @@ static bool cpuTreeTake(void* heap, s32* where, s32 size) {
     u32 nPack;
     u32 nMask;
     u32 nMask0;
-    u32* paHeapTreeFlag = SYSTEM_CPU(gpSystem)->aHeapTreeFlag;
+    u32* paHeapTreeFlag = SYS_HEAP_TREE_FLAG();
 
     done = false;
     for (iPack = 0; iPack < 125; iPack++) {
@@ -12083,7 +12454,7 @@ static bool cpuTreeTake(void* heap, s32* where, s32 size) {
         return false;
     }
 
-    *((s32*)heap) = (s32)SYSTEM_CPU(gpSystem)->gHeapTree + ((*where & 0xFFFF) * sizeof(CpuFunction));
+    *((s32*)heap) = (s32)SYS_HEAP_TREE() + ((*where & 0xFFFF) * sizeof(CpuFunction));
 
     return true;
 }
@@ -12132,7 +12503,14 @@ bool cpuFindFunction(Cpu* pCPU, s32 theAddress, CpuFunction** tree_node) {
     current_address = theAddress;
 
     do {
+#if IS_MM
+        // MM bails out if the fetch fails; OoT ignores the result.
+        if (!CPU_DEVICE_GET32(apDevice, aiDevice, current_address, &opcode)) {
+            return false;
+        }
+#else
         CPU_DEVICE_GET32(apDevice, aiDevice, current_address, &opcode);
+#endif
         follow = true;
 
         if (check == 0) {
@@ -12180,6 +12558,15 @@ bool cpuFindFunction(Cpu* pCPU, s32 theAddress, CpuFunction** tree_node) {
                     }
                 }
                 break;
+#if IS_MM
+            case 0x03: // jal
+                // A call as the very first instruction means we most likely started
+                // scanning inside a function rather than at its entry.
+                if (anAddr[0] == current_address) {
+                    alert = true;
+                }
+                break;
+#endif
             case 0x01: // regimm
                 switch ((u8)MIPS_RT(opcode)) {
                     case 0x00: // bltz
@@ -12374,6 +12761,18 @@ bool cpuFindFunction(Cpu* pCPU, s32 theAddress, CpuFunction** tree_node) {
                             if (opcode != 0 && treeSearch(pCPU, beginAddress - 4, tree_node)) {
                                 break;
                             }
+#if IS_MM
+                            // MM also inspects the instruction ahead of the candidate and
+                            // stops on a padding word or on a jr.
+                            CPU_DEVICE_GET32(apDevice, aiDevice, beginAddress - 4, &opcode);
+                            if (opcode == 0) {
+                                beginAddress -= 4;
+                                break;
+                            }
+                            if (MIPS_OP(opcode) == 0 && MIPS_FUNCT(opcode) == 8) { // jr
+                                break;
+                            }
+#endif
                         } while (opcode != 0);
 
                         anAddr[0] = 0;
@@ -12399,18 +12798,20 @@ bool cpuFindFunction(Cpu* pCPU, s32 theAddress, CpuFunction** tree_node) {
                 current_address += 4;
             }
 
+            // Per-ROM function-boundary fixups. MM's cpuFindFunction has none of these.
+#if !IS_MM
             if (check == 1) {
-                if (gpSystem->eTypeROM == NM8E) {
+                if (CPU_SYSTEM(pCPU)->eTypeROM == NM8E) {
                     if (anAddr[2] == 0x802F1FF0) {
                         anAddr[0] = 0x802F1F50;
                     } else if (anAddr[2] == 0x80038308) {
                         anAddr[0] = 0x800382F0;
                     }
-                } else if (gpSystem->eTypeROM == NMFE) {
+                } else if (CPU_SYSTEM(pCPU)->eTypeROM == NMFE) {
                     if (anAddr[2] == 0x8009E420) {
                         anAddr[0] = 0x8009E380;
                     }
-                } else if (gpSystem->eTypeROM == NMQE || gpSystem->eTypeROM == NMQJ || gpSystem->eTypeROM == NMQP) {
+                } else if (CPU_SYSTEM(pCPU)->eTypeROM == NMQE || CPU_SYSTEM(pCPU)->eTypeROM == NMQJ || CPU_SYSTEM(pCPU)->eTypeROM == NMQP) {
                     if (anAddr[0] == 0x802C88FC) {
                         anAddr[2] = 0x802C8974;
                     } else if (anAddr[0] == 0x802C8978) {
@@ -12420,6 +12821,7 @@ bool cpuFindFunction(Cpu* pCPU, s32 theAddress, CpuFunction** tree_node) {
                     }
                 }
             }
+#endif
 
             if (!treeInsert(pCPU, anAddr[0], anAddr[2])) {
                 return false;
@@ -12616,7 +13018,7 @@ static inline bool cpuTreeFree(CpuFunction* pFunction) {
         return false;
     }
 
-    anPack = SYSTEM_CPU(gpSystem)->aHeapTreeFlag;
+    anPack = SYS_HEAP_TREE_FLAG();
     nMask = ((1 << (pFunction->treeheapWhere >> 16)) - 1) << (pFunction->treeheapWhere & 0x1F);
     iPack = (pFunction->treeheapWhere & 0xFFFF) >> 5;
     if ((anPack[iPack] & nMask) == nMask) {
@@ -13441,9 +13843,15 @@ static bool treeCleanUp(Cpu* pCPU, CpuTreeRoot* root) {
         return false;
     }
 
+#if IS_MM
+    if (treeMemory(pCPU) > 0x480000) {
+        root->kill_limit = pCPU->survivalTimer - 10;
+    } else if (treeMemory(pCPU) > 4200000) {
+#else
     if (treeMemory(pCPU) > 0x400000) {
         root->kill_limit = pCPU->survivalTimer - 10;
     } else if (treeMemory(pCPU) > 3250000) {
+#endif
         root->kill_limit += 95;
         if (root->kill_limit > pCPU->survivalTimer - 10) {
             root->kill_limit = pCPU->survivalTimer - 10;

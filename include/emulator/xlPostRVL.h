@@ -9,6 +9,7 @@ extern "C" {
 
 bool xlPostSetup(void);
 bool xlPostReset(void);
+bool xlPostText(const char* fmt, const char* file, s32 line, ...);
 
 #ifdef __cplusplus
 }

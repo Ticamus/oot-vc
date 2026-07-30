@@ -150,7 +150,7 @@ bool simulatorWriteFLASH(s32 address, u8* data, s32 size) {
     return true;
 }
 
-bool fn_80007280() {
+bool fn_80007280(s32 arg0, s32 arg1, s32 arg2, s32 arg3) {
     OSGetTick();
     return true;
 }

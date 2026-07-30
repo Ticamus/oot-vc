@@ -171,7 +171,11 @@ bool viGet32(VI* pVI, u32 nAddress, s32* pData) {
 
 bool viGet64(VI* pVI, u32 nAddress, s64* pData) { return false; }
 
+#if IS_MM
+bool viForceRetrace(VI* pVI, s32 nUnknown) {
+#else
 bool viForceRetrace(VI* pVI) {
+#endif
     if (!systemExceptionPending(gpSystem, SIT_VI) && (pVI->nStatus & 3)) {
         pVI->nScan = pVI->nScanInterrupt;
         xlObjectEvent(gpSystem, 0x1000, (void*)8);
