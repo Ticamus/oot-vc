@@ -124,10 +124,10 @@ bool fn_80007118(u32* mapData, s32 channel) {
     return true;
 }
 
-bool simulatorCopyControllerMap(u32* mapDataOutput, u32* mapDataInput) {
-    int i;
+bool simulatorCopyControllerMap(Controller* pController, u32* mapDataOutput, u32* mapDataInput) {
+    s32 i;
 
-    for (i = 0; i < 22; i++) {
+    for (i = 0; i < GCN_BTN_COUNT; i++) {
         mapDataOutput[i] = mapDataInput[i];
     }
 

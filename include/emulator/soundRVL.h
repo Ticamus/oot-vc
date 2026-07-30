@@ -2,6 +2,7 @@
 #define _SOUNDRVL_H
 
 #include "emulator/xlObject.h"
+#include "macros.h"
 #include "revolution/types.h"
 
 #ifdef __cplusplus
@@ -51,7 +52,13 @@ typedef struct Sound {
     /* 0x4BC */ s32 nSizeZero;
     /* 0x4C0 */ s32 nSizeHold;
     /* 0x4C4 */ s32 nSizeRamp;
-} Sound; // size = 0x4C8
+#if IS_MM
+    /* 0x4C8 */ u8 unk_4C8[0x534 - 0x4C8];
+    /* 0x534 */ s32 unk_534;
+    /* 0x538 */ s32 unk_538;
+    /* 0x53C */ s32 unk_53C;
+#endif
+} Sound; // size = 0x4C8 (0x540 for MM)
 
 bool soundWipeBuffers(Sound* pSound);
 bool soundSetLength(Sound* pSound, s32 nSize);
