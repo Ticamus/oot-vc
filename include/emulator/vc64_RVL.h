@@ -45,6 +45,10 @@ bool simulatorDVDRead(DVDFileInfo* pFileInfo, void* anData, s32 nSizeRead, s32 n
 bool simulatorShowLoad(s32 unknown, char* szNameFile, f32 rProgress);
 bool simulatorGetArgument(SimulatorArgumentType eType, char** pszArgument);
 bool xlMain(void);
+#if IS_MM
+// The body only calls OSGetTick and returns true; none of the four arguments is used.
+bool fn_80007280(s32 arg0, s32 arg1, s32 arg2, s32 arg3);
+#endif
 
 extern System* gpSystem;
 

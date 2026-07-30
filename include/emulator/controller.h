@@ -79,6 +79,10 @@ bool fn_80062C18(Controller* pController, s32 iController, s32* pnButton, s32* a
 bool fn_80062CE4(Controller* pController, s32 iController, bool bUnknown);
 bool simulatorSetControllerMap(Controller* pController, s32 channel, u32* mapData);
 // bool simulatorCopyControllerMap(Controller* pController, u32* mapDataOutput, u32* mapDataInput);
+#if IS_MM
+bool simulatorCopyControllerMap(u32* mapDataOutput, u32* mapDataInput);
+bool fn_80007118(u32* mapData, s32 channel);
+#endif
 bool fn_80062E5C(Controller* pController, s32, s32*) NO_INLINE;
 bool simulatorDetectController(Controller* pController, s32 arg1);
 bool fn_800622B8(Controller* pController) NO_INLINE;

@@ -300,8 +300,13 @@ int main(int nCount, char** aszArgument) {
     void* arenaLo;
     void* arenaHi;
     f32 aspectRatio;
+#if IS_MM
     u32 nSize;
     u32 nSizeHeap;
+#else
+    s32 nSize;
+    s32 nSizeHeap;
+#endif
 
     gnCountArgument = nCount;
     gaszArgument = aszArgument;

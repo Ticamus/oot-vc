@@ -312,6 +312,14 @@ config.libs = [
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/mi.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/disk.c"),
             Object(NotLinked, "emulator/cpu.c"),
+            # 2 instructions off (commutative addc operand order): flip to
+            # LinkedFor("mm-j") to link it and let the DOL check gate the fix.
+            Object(NotLinked, "emulator/cpu_execute_update.c"),
+            Object(NotLinked, "emulator/cpu_2.c"),
+            Object(LinkedFor("mm-j"), "emulator/cpu_execute_jump.c"),
+            Object(NotLinked, "emulator/cpu_3.c"),
+            Object(LinkedFor("mm-j"), "emulator/cpu_reset.c"),
+            Object(NotLinked, "emulator/cpu_4.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/pif.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/ram.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/rom.c"),

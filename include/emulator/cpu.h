@@ -280,6 +280,66 @@ typedef struct Cpu Cpu;
 typedef s32 (*CpuExecuteFunc)(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGCN);
 
 // _CPU
+#if IS_MM
+// MM reorders and resizes several members relative to OoT: nLo/nHi/nPC sit further
+// in, nRetrace moves down past the pfXxx handlers, aHeap1Flag holds 256 entries and
+// gHeapTree/aHeapTreeFlag are plain globals rather than members.
+struct Cpu {
+    /* 0x00000 */ s32 nMode;
+    /* 0x00004 */ s32 nTick;
+    // Running total of elapsed OSGetTime() ticks; MM derives the CP0 counter delta
+    // from this with integer math where OoT uses OSGetTick() and floats.
+    /* 0x00008 */ u64 nTimeTotal;
+    /* 0x00010 */ u8 unk_00010[0x8];
+    // Back-pointer to the owning System. OoT reaches it through the gpSystem global
+    // instead. Typed void* to avoid a circular include; SYSTEM_* casts it.
+    /* 0x00018 */ void* pSystem;
+    /* 0x0001C */ s32 unk_0001C;
+    /* 0x00020 */ s64 nLo;
+    /* 0x00028 */ s64 nHi;
+    /* 0x00030 */ s32 nCountAddress;
+    /* 0x00034 */ s32 iDeviceDefault;
+    /* 0x00038 */ u32 nPC;
+    /* 0x0003C */ u32 nWaitPC;
+    /* 0x00040 */ u32 nCallLast;
+    /* 0x00044 */ u32 nTickLast;
+    /* 0x00048 */ s32 unk_00048;
+    /* 0x0004C */ CpuFunction* pFunctionLast;
+    /* 0x00050 */ s32 nReturnAddrLast;
+    /* 0x00054 */ s32 survivalTimer;
+    /* 0x00058 */ CpuGpr aGPR[32];
+    /* 0x00158 */ CpuFpr aFPR[32];
+    /* 0x00258 */ u64 aTLB[48][5];
+    /* 0x009D8 */ s32 anFCR[32];
+    /* 0x00A58 */ s64 anCP0[32];
+    /* 0x00B58 */ CpuExecuteFunc pfStep;
+    /* 0x00B5C */ CpuExecuteFunc pfJump;
+    /* 0x00B60 */ CpuExecuteFunc pfCall;
+    /* 0x00B64 */ CpuExecuteFunc pfIdle;
+    /* 0x00B68 */ CpuExecuteFunc pfRam;
+    /* 0x00B6C */ CpuExecuteFunc pfRamF;
+    // Timestamp of the last jump/call, in OSGetTime() ticks. Plays the role OoT's
+    // 32-bit nTickLast does.
+    /* 0x00B70 */ u64 nTimeLast;
+    /* 0x00B78 */ volatile u32 nRetrace;
+    /* 0x00B7C */ volatile u32 nRetraceUsed;
+    /* 0x00B80 */ CpuDevice* apDevice[256];
+    /* 0x00F80 */ u8 aiDevice[1 << DEVICE_ADDRESS_INDEX_BITS];
+    /* 0x10F80 */ void* gHeap1;
+    /* 0x10F84 */ void* gHeap2;
+    /* 0x10F88 */ u32 aHeap1Flag[256];
+    /* 0x11388 */ u32 aHeap2Flag[13];
+    /* 0x113BC */ CpuTreeRoot* gTree;
+    /* 0x113C0 */ CpuAddress aAddressCache[256];
+    /* 0x11FC0 */ s32 nCountCodeHack;
+    /* 0x11FC4 */ CpuCodeHack aCodeHack[32];
+    /* 0x12144 */ u8 unk_12144[0x3C];
+    /* 0x12180 */ u32 nFlagRAM;
+    /* 0x12184 */ u32 nFlagCODE;
+    /* 0x12188 */ u32 nCompileFlag;
+    /* 0x1218C */ CpuOptimize nOptimize;
+};
+#else
 struct Cpu {
     /* 0x00000 */ s32 nMode;
     /* 0x00004 */ s32 nTick;
@@ -287,9 +347,6 @@ struct Cpu {
     /* 0x00010 */ s64 nHi;
     /* 0x00018 */ s32 nCountAddress;
     /* 0x0001C */ s32 iDeviceDefault;
-#if IS_MM
-    u8 pad1[0x18];
-#endif
     /* 0x00020 */ u32 nPC;
     /* 0x00024 */ u32 nWaitPC;
     /* 0x00028 */ u32 nCallLast;
@@ -297,9 +354,6 @@ struct Cpu {
     /* 0x00030 */ s32 nReturnAddrLast;
     /* 0x00034 */ s32 survivalTimer;
     /* 0x00038 */ u32 nTickLast;
-#if IS_MM
-    u8 pad2[0xB24];
-#endif
     /* 0x0003C */ volatile u32 nRetrace;
     /* 0x00040 */ volatile u32 nRetraceUsed;
     /* 0x00048 */ CpuGpr aGPR[32];
@@ -333,6 +387,7 @@ struct Cpu {
     /* 0x12298 */ s64 nTimeRetrace;
     /* 0x122A0 */ u8 pad[0x30];
 }; // size = 0x122D0
+#endif
 
 #define CPU_DEVICE(apDevice, aiDevice, nAddress) (apDevice[aiDevice[(u32)(nAddress) >> DEVICE_ADDRESS_OFFSET_BITS]])
 
