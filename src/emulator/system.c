@@ -48,6 +48,104 @@ _XL_OBJECTTYPE gClassSystem = {
 #endif
 
 // clang-format off
+#if IS_MM
+static u32 contMap[][GCN_BTN_COUNT] = {
+    // Controller Configuration No. 1
+    {
+        N64_BTN_A,      // GCN_BTN_A
+        N64_BTN_B,      // GCN_BTN_B
+        N64_BTN_UNSET,  // GCN_BTN_X
+        N64_BTN_UNSET,  // GCN_BTN_Y
+        N64_BTN_L,      // GCN_BTN_L
+        N64_BTN_R,      // GCN_BTN_R
+        N64_BTN_Z,      // GCN_BTN_Z
+        N64_BTN_START,  // GCN_BTN_START
+        0x08000000,     // GCN_BTN_UNK8
+        0x04000000,     // GCN_BTN_UNK9
+        0x02000000,     // GCN_BTN_UNK10
+        0x01000000,     // GCN_BTN_UNK11
+        N64_BTN_DUP,    // GCN_BTN_DPAD_UP
+        N64_BTN_DDOWN,  // GCN_BTN_DPAD_DOWN
+        N64_BTN_DLEFT,  // GCN_BTN_DPAD_LEFT
+        N64_BTN_DRIGHT, // GCN_BTN_DPAD_RIGHT
+        N64_BTN_CUP,    // GCN_BTN_CSTICK_UP
+        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_DOWN
+        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_LEFT
+        N64_BTN_CRIGHT, // GCN_BTN_CSTICK_RIGHT
+    },
+    // Controller Configuration No. 2
+    {
+        N64_BTN_A,      // GCN_BTN_A
+        N64_BTN_B,      // GCN_BTN_B
+        N64_BTN_UNSET,  // GCN_BTN_X
+        N64_BTN_UNSET,  // GCN_BTN_Y
+        N64_BTN_Z,      // GCN_BTN_L
+        N64_BTN_R,      // GCN_BTN_R
+        N64_BTN_Z,      // GCN_BTN_Z
+        N64_BTN_START,  // GCN_BTN_START
+        0x08000000,     // GCN_BTN_UNK8
+        0x04000000,     // GCN_BTN_UNK9
+        0x02000000,     // GCN_BTN_UNK10
+        0x01000000,     // GCN_BTN_UNK11
+        N64_BTN_DUP,    // GCN_BTN_DPAD_UP
+        N64_BTN_DDOWN,  // GCN_BTN_DPAD_DOWN
+        N64_BTN_DLEFT,  // GCN_BTN_DPAD_LEFT
+        N64_BTN_DRIGHT, // GCN_BTN_DPAD_RIGHT
+        N64_BTN_CUP,    // GCN_BTN_CSTICK_UP
+        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_DOWN
+        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_LEFT
+        N64_BTN_CRIGHT, // GCN_BTN_CSTICK_RIGHT
+    },
+    // Controller Configuration No. 3
+    {
+        N64_BTN_A,      // GCN_BTN_A
+        N64_BTN_B,      // GCN_BTN_B
+        N64_BTN_CRIGHT, // GCN_BTN_X
+        N64_BTN_CLEFT,  // GCN_BTN_Y
+        N64_BTN_Z,      // GCN_BTN_L
+        N64_BTN_R,      // GCN_BTN_R
+        N64_BTN_CDOWN,  // GCN_BTN_Z
+        N64_BTN_START,  // GCN_BTN_START
+        N64_BTN_UNSET,  // GCN_BTN_UNK8
+        N64_BTN_UNSET,  // GCN_BTN_UNK9
+        N64_BTN_UNSET,  // GCN_BTN_UNK10
+        N64_BTN_UNSET,  // GCN_BTN_UNK11
+        N64_BTN_UNSET,  // GCN_BTN_DPAD_UP
+        N64_BTN_L,      // GCN_BTN_DPAD_DOWN
+        N64_BTN_L,      // GCN_BTN_DPAD_LEFT
+        N64_BTN_L,      // GCN_BTN_DPAD_RIGHT
+        N64_BTN_L,      // GCN_BTN_CSTICK_UP
+        N64_BTN_CUP,    // GCN_BTN_CSTICK_DOWN
+        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_LEFT
+        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_RIGHT
+        N64_BTN_CRIGHT, // GCN_BTN_UNK20
+    },
+    // Controller Configuration No. 4
+    {
+        N64_BTN_A,      // GCN_BTN_A
+        N64_BTN_B,      // GCN_BTN_B
+        N64_BTN_CRIGHT, // GCN_BTN_X
+        N64_BTN_CLEFT,  // GCN_BTN_Y
+        N64_BTN_Z,      // GCN_BTN_L
+        N64_BTN_R,      // GCN_BTN_R
+        N64_BTN_CDOWN,  // GCN_BTN_Z
+        N64_BTN_START,  // GCN_BTN_START
+        N64_BTN_UNSET,  // GCN_BTN_UNK8
+        N64_BTN_UNSET,  // GCN_BTN_UNK9
+        N64_BTN_UNSET,  // GCN_BTN_UNK10
+        N64_BTN_UNSET,  // GCN_BTN_UNK11
+        N64_BTN_UNSET,  // GCN_BTN_DPAD_UP
+        N64_BTN_L,      // GCN_BTN_DPAD_DOWN
+        N64_BTN_L,      // GCN_BTN_DPAD_LEFT
+        N64_BTN_L,      // GCN_BTN_DPAD_RIGHT
+        N64_BTN_L,      // GCN_BTN_CSTICK_UP
+        N64_BTN_CUP,    // GCN_BTN_CSTICK_DOWN
+        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_LEFT
+        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_RIGHT
+        N64_BTN_CRIGHT, // GCN_BTN_UNK20
+    },
+};
+#else
 static u32 contMap[][GCN_BTN_COUNT] = {
     // Controller Configuration No. 1
     {
@@ -165,6 +263,7 @@ static u32 contMap[][GCN_BTN_COUNT] = {
         N64_BTN_CRIGHT, // GCN_BTN_CSTICK_RIGHT
     },
 };
+#endif
 // clang-format on
 
 #if IS_OOT || IS_MT
@@ -1438,8 +1537,8 @@ static bool systemSetupGameALL(System* pSystem) {
 #elif IS_MM
 extern s32 lbl_801FF810;
 extern f32 lbl_801FF814;
-extern const f32 lbl_80201504;
-extern const f32 lbl_80201508;
+static const f32 lbl_80201504 = 245.0f;
+static const f32 lbl_80201508 = 1.1f;
 extern s32 lbl_802006B0;
 extern u8 lbl_8014E550[0x300];
 
