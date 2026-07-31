@@ -45,6 +45,10 @@ _XL_OBJECTTYPE gClassSystem = {
     NULL,
     (EventFunc)systemEvent,
 }; // size = 0x10
+
+//! Not in the original game. Defined next to the rest of the OoTMM combo support, further
+//! down; systemSetupGameALL() needs it well before that.
+static bool comboTestName(Rom* pROM);
 #endif
 
 // clang-format off
@@ -105,64 +109,43 @@ static u32 contMap[][GCN_BTN_COUNT] = {
         N64_BTN_R,      // GCN_BTN_R
         N64_BTN_CDOWN,  // GCN_BTN_Z
         N64_BTN_START,  // GCN_BTN_START
-        0x08000000,     // GCN_BTN_UNK8
-        0x04000000,     // GCN_BTN_UNK9
-        0x02000000,     // GCN_BTN_UNK10
-        0x01000000,     // GCN_BTN_UNK11
-        N64_BTN_L,      // GCN_BTN_DPAD_UP
+        N64_BTN_UNSET,  // GCN_BTN_UNK8
+        N64_BTN_UNSET,  // GCN_BTN_UNK9
+        N64_BTN_UNSET,  // GCN_BTN_UNK10
+        N64_BTN_UNSET,  // GCN_BTN_UNK11
+        N64_BTN_UNSET,  // GCN_BTN_DPAD_UP
         N64_BTN_L,      // GCN_BTN_DPAD_DOWN
         N64_BTN_L,      // GCN_BTN_DPAD_LEFT
         N64_BTN_L,      // GCN_BTN_DPAD_RIGHT
-        N64_BTN_CUP,    // GCN_BTN_CSTICK_UP
-        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_DOWN
-        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_LEFT
-        N64_BTN_CRIGHT, // GCN_BTN_CSTICK_RIGHT
+        N64_BTN_L,      // GCN_BTN_CSTICK_UP
+        N64_BTN_CUP,    // GCN_BTN_CSTICK_DOWN
+        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_LEFT
+        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_RIGHT
+        N64_BTN_CRIGHT, // GCN_BTN_UNK20
     },
     // Controller Configuration No. 4
     {
         N64_BTN_A,      // GCN_BTN_A
         N64_BTN_B,      // GCN_BTN_B
-        N64_BTN_Z,      // GCN_BTN_X
-        N64_BTN_Z,      // GCN_BTN_Y
-        N64_BTN_Z,      // GCN_BTN_L
-        N64_BTN_R,      // GCN_BTN_R
-        N64_BTN_L,      // GCN_BTN_Z
-        N64_BTN_START,  // GCN_BTN_START
-        0x08000000,     // GCN_BTN_UNK8
-        0x04000000,     // GCN_BTN_UNK9
-        0x02000000,     // GCN_BTN_UNK10
-        0x01000000,     // GCN_BTN_UNK11
-        N64_BTN_DUP,    // GCN_BTN_DPAD_UP
-        N64_BTN_DDOWN,  // GCN_BTN_DPAD_DOWN
-        N64_BTN_DLEFT,  // GCN_BTN_DPAD_LEFT
-        N64_BTN_DRIGHT, // GCN_BTN_DPAD_RIGHT
-        N64_BTN_CUP,    // GCN_BTN_CSTICK_UP
-        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_DOWN
-        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_LEFT
-        N64_BTN_CRIGHT, // GCN_BTN_CSTICK_RIGHT
-    }, 
-    // Controller Configuration No. 5
-    {
-        N64_BTN_A,      // GCN_BTN_A
-        N64_BTN_B,      // GCN_BTN_B
-        N64_BTN_CDOWN,  // GCN_BTN_X
+        N64_BTN_CRIGHT, // GCN_BTN_X
         N64_BTN_CLEFT,  // GCN_BTN_Y
         N64_BTN_Z,      // GCN_BTN_L
         N64_BTN_R,      // GCN_BTN_R
-        N64_BTN_CRIGHT, // GCN_BTN_Z
+        N64_BTN_CDOWN,  // GCN_BTN_Z
         N64_BTN_START,  // GCN_BTN_START
-        0x08000000,     // GCN_BTN_UNK8
-        0x04000000,     // GCN_BTN_UNK9
-        0x02000000,     // GCN_BTN_UNK10
-        0x01000000,     // GCN_BTN_UNK11
-        N64_BTN_CUP,    // GCN_BTN_DPAD_UP
-        N64_BTN_CUP,    // GCN_BTN_DPAD_DOWN
-        N64_BTN_CUP,    // GCN_BTN_DPAD_LEFT
-        N64_BTN_CUP,    // GCN_BTN_DPAD_RIGHT
-        N64_BTN_CUP,    // GCN_BTN_CSTICK_UP
-        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_DOWN
-        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_LEFT
-        N64_BTN_CRIGHT, // GCN_BTN_CSTICK_RIGHT
+        N64_BTN_UNSET,  // GCN_BTN_UNK8
+        N64_BTN_UNSET,  // GCN_BTN_UNK9
+        N64_BTN_UNSET,  // GCN_BTN_UNK10
+        N64_BTN_UNSET,  // GCN_BTN_UNK11
+        N64_BTN_UNSET,  // GCN_BTN_DPAD_UP
+        N64_BTN_L,      // GCN_BTN_DPAD_DOWN
+        N64_BTN_L,      // GCN_BTN_DPAD_LEFT
+        N64_BTN_L,      // GCN_BTN_DPAD_RIGHT
+        N64_BTN_L,      // GCN_BTN_CSTICK_UP
+        N64_BTN_CUP,    // GCN_BTN_CSTICK_DOWN
+        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_LEFT
+        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_RIGHT
+        N64_BTN_CRIGHT, // GCN_BTN_UNK20
     },
 };
 // clang-format on
@@ -1438,8 +1421,8 @@ static bool systemSetupGameALL(System* pSystem) {
 #elif IS_MM
 extern s32 lbl_801FF810;
 extern f32 lbl_801FF814;
-extern const f32 lbl_80201504;
-extern const f32 lbl_80201508;
+static const f32 lbl_80201504 = 245.0f;
+static const f32 lbl_80201508 = 1.1f;
 extern s32 lbl_802006B0;
 extern u8 lbl_8014E550[0x300];
 
@@ -1496,9 +1479,21 @@ static bool systemSetupGameALL(System* pSystem) {
     ((u32*)pBuffer2)[6] = nSize;
     systemGetInitialConfiguration(pSystem, pROM, 0);
 
+    //! Not in the original game. Recognise the OoTMM combined ROM by its internal name at
+    //! header offset 0x20; the game code at 0x3B is MM US's (NZSE), so it is the only thing
+    //! that tells the combo apart from vanilla MM. That code is also why nothing else here
+    //! needs changing: the combo saves through MM's FlashRAM for both halves, so the
+    //! storage device and controller map this function has just chosen are right either way.
+    gIsOotmmCombo = comboTestName(pROM);
+    SYSTEM_CPU(pSystem)->isMM = false;
+
+    if (gIsOotmmCombo) {
+        OSReport("combo: OoTMM image detected, booting into OoT\n");
+    }
+
     pSystem->unk_94 = 1;
 
-    if (gSystemRomConfigurationList[0].storageDevice & 1) {
+    /*if (gSystemRomConfigurationList[0].storageDevice & 1) {
         var_r25 = SOT_SRAM;
         var_r24 = 0x8000;
     } else if (gSystemRomConfigurationList[0].storageDevice & 2) {
@@ -1510,7 +1505,10 @@ static bool systemSetupGameALL(System* pSystem) {
     } else if (gSystemRomConfigurationList[0].storageDevice & 8) {
         var_r25 = SOT_PAK;
         var_r24 = 0x800;
-    }
+    }*/
+
+    var_r25 = SOT_FLASH;
+    var_r24 = 0x40000;
 
     if (var_r25 != SOT_NONE && !systemSetStorageDevice(pSystem, var_r25, (void*)var_r24, pSystem->unk_94)) {
         return false;
@@ -2176,6 +2174,280 @@ static inline bool systemSetRamMode(System* pSystem) {
 
     return true;
 }
+
+#if IS_MM
+//! Not in the original game. Everything below implements the OoTMM combined ROM's
+//! OoT <-> MM handover, ported from the GameCube emulator's src/emulator/system.c.
+//!
+//! The combo's payload does the handover entirely on the N64 side: it halts the RCP, DMAs
+//! the foreign game's boot segment in from the cart, then `jr`s to its raw entrypoint,
+//! bypassing IPL3. Nothing tells the emulator that the code at a given N64 address has been
+//! replaced wholesale, so the recompiler keeps running functions it compiled for the game
+//! that just went away, and the libultra scheduler emulation keeps dispatching its threads.
+//! comboEmulatorSwitchFix() rebuilds the state a cold entrypoint expects.
+//! cpuExecuteJump() in cpu_execute_jump.c spots the jump and calls in here.
+
+// Raw entrypoints the payload jumps to, and the extent of the boot segment it DMAs in just
+// beforehand. Taken from the payload's own switch.c: OoT's foreign segment is 0x6430 bytes
+// at RAM offset 0x400, MM's is 0x19500 bytes at offset 0x80000.
+#define COMBO_OOT_ENTRY 0x80000400
+#define COMBO_OOT_BOOT_END 0x80006830
+#define COMBO_MM_ENTRY 0x80080000
+#define COMBO_MM_BOOT_END 0x80099500
+
+// The libultra exception handler prologue, used to find __osException inside a boot segment
+// that has just been DMA'd in: `lui k0, hi ; addiu k0, k0, lo ; sd at, 0x20(k0)`.
+#define COMBO_EXC_HI_MASK 0xFFFF0000
+#define COMBO_EXC_LUI_K0 0x3C1A0000
+#define COMBO_EXC_ADDIU_K0 0x275A0000
+#define COMBO_EXC_SD_AT 0xFF410020
+
+// Sizes cpuReset() hands to xlHeapTake() for the three code heaps; the switch writes back
+// the host caches over exactly those ranges. Kept in step with cpu_reset.c.
+#define COMBO_HEAP1_SIZE 0x400000
+#define COMBO_HEAP2_SIZE 0x104000
+#define COMBO_HEAPTREE_SIZE 0x46500
+
+// cpu.c file-scope objects and functions, reached across the splits. dtk gives every
+// function it recovers global scope, and the two objects are named in symbols.txt.
+extern u32 gaHeapTreeFlag[125];
+extern void* gHeapTree;
+bool cpuSetCP0_Status(Cpu* pCPU, u64 nStatus, u32 unknown);
+bool cpuHackHandler(Cpu* pCPU);
+bool treeKill(Cpu* pCPU);
+
+bool gIsOotmmCombo = false;
+
+//! Not in the original game. The mm-j link has no memcmp, hence the loop.
+static bool comboTestName(Rom* pROM) {
+    static const char szName[] = "OOT+MM COMBO";
+    s32 iChar;
+
+    for (iChar = 0; szName[iChar] != '\0'; iChar++) {
+        if (pROM->acHeader[0x20 + iChar] != szName[iChar]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+//! Not in the original game. cpuHeapReset() is static in cpu.c and inlined away there, so
+//! keep a local copy rather than adding a symbol for something this small.
+static void comboHeapReset(u32* anFlag, s32 nCount) {
+    s32 i;
+
+    for (i = 0; i < nCount; i++) {
+        anFlag[i] = 0;
+    }
+}
+
+//! Not in the original game. Puts the per-frame hack state back to what frameEvent()'s
+//! case 2 leaves it in, minus the GX calls, the block allocation and the viewport/scale
+//! fields: those describe the host display, not the game, and case 2 derives them from
+//! rmode and xlCoreHiResolution(). Pause capture, motion blur, the Lens of
+//! Truth and the Bombers' notebook all latch state across frames; carried from one half of
+//! the combo into the other it produces a frozen or mis-composited screen.
+//!
+//! Note there is no counterpart to the GameCube version's frameResetCache(): there, the
+//! temp/copy/camera buffers are xlHeapTake()n with sizes that depend on which game is
+//! running, so a switch had to free and re-take them. Here frameEvent()'s case 0x1003
+//! allocates them once through helpMenuAllocate(), with sizes that do not depend on the
+//! game, so there is nothing to redo.
+static void frameTest(Frame* pFrame) {
+    pFrame->nFlag = 0;
+    pFrame->nMode = 0x20000;
+    pFrame->iHintMatrix = 0;
+    pFrame->nCountFrames = 0;
+
+    pFrame->nOffsetDepth0 = -1;
+    pFrame->nOffsetDepth1 = -1;
+    pFrame->viewport.rX = 0.0f;
+    pFrame->viewport.rY = 0.0f;
+    pFrame->nHackCount = 0;
+    pFrame->bBlurOn = false;
+    pFrame->bHackPause = false;
+    pFrame->nFrameCounter = 0;
+    pFrame->nNumCIMGAddresses = 0;
+    pFrame->bPauseThisFrame = false;
+    pFrame->bCameFromBomberNotes = false;
+    pFrame->bInBomberNotes = false;
+    pFrame->bShrinking = 0;
+    pFrame->bSnapShot = 0;
+    pFrame->bUsingLens = false;
+    pFrame->cBlurAlpha = 170;
+    pFrame->bBlurredThisFrame = false;
+    pFrame->nFrameCIMGCalls = 0;
+
+    pFrame->bModifyZBuffer = false;
+    pFrame->nZBufferSets = 0;
+    pFrame->nLastFrameZSets = 0;
+    pFrame->bPauseBGDrawn = false;
+}
+
+//! Not in the original game. Rewrites the four N64 exception vectors so they point at the
+//! incoming game's __osException.
+//!
+//! Between the handover and the incoming game's osInitialize, the vectors still hold the
+//! outgoing game's preamble. An exception landing in that window either runs the dead
+//! game's handler outright, or -- worse -- lets libraryFindException() read the stale
+//! preamble and bind the scheduler emulation to the wrong game's globals, so the HLE starts
+//! dispatching threads that no longer exist. The foreign boot segment is already resident
+//! (the payload DMA'd it before the jump), so find its __osException by signature and write
+//! the preamble ourselves; osInitialize later writes exactly the same thing.
+static bool comboWriteExceptionVectors(Cpu* pCPU, u32 nStart, u32 nEnd) {
+    u32* pnCode;
+    u32* pnVector;
+    u32 nAddress;
+    u32 nException;
+    u32 nHi;
+    u32 nLo;
+    s32 iVector;
+
+    nException = 0;
+
+    if (cpuGetAddressBuffer(pCPU, (void**)&pnCode, nStart)) {
+        for (nAddress = nStart; nAddress < nEnd - 8; nAddress += 4, pnCode++) {
+            if ((pnCode[0] & COMBO_EXC_HI_MASK) == COMBO_EXC_LUI_K0 &&
+                (pnCode[1] & COMBO_EXC_HI_MASK) == COMBO_EXC_ADDIU_K0 && pnCode[2] == COMBO_EXC_SD_AT) {
+                nException = nAddress;
+                break;
+            }
+        }
+    }
+
+    if (nException == 0) {
+        OSReport("combo: __osException signature not found in [%08X,%08X)\n", nStart, nEnd);
+        return false;
+    }
+
+    nHi = (nException + 0x8000) >> 16;
+    nLo = nException & 0xFFFF;
+
+    for (iVector = 0; iVector < 4; iVector++) {
+        if (cpuGetAddressBuffer(pCPU, (void**)&pnVector, 0x80000000 + iVector * 0x80)) {
+            pnVector[0] = COMBO_EXC_LUI_K0 | nHi;   // lui k0, hi(__osException)
+            pnVector[1] = COMBO_EXC_ADDIU_K0 | nLo; // addiu k0, k0, lo(__osException)
+            pnVector[2] = 0x03400008;               // jr k0
+            pnVector[3] = 0x00000000;               // nop
+        }
+    }
+
+    OSReport("combo: exception vectors now point at __osException %08X\n", nException);
+    return true;
+}
+
+bool comboEmulatorSwitchFix(Cpu* pCPU) {
+    MI* pMI = SYSTEM_MI(gpSystem);
+    Library* pLibrary = SYSTEM_LIBRARY(gpSystem);
+
+    // Note there is no eTypeROM update here, unlike the GameCube version. There, the whole
+    // renderer switches on the coarse SRT_ZELDA1/SRT_ZELDA2 type and MM had to be forced
+    // back to SRT_ZELDA2 after the switch. Here eTypeROM is the ROM's own game code, and the
+    // only places in this build that still read it at run time are one test in frame.c and
+    // one in library.c -- both against NZSJ, the mm-j channel's own JP ROM, so already false
+    // for the combo's NZSE -- plus a list in controller.c that contains both halves' codes.
+    // Rewriting it would change nothing and would desync systemGetInitialConfiguration's
+    // view of the loaded image.
+
+    frameTest(SYSTEM_FRAME(gpSystem));
+
+    // Architectural state a cold entrypoint expects, as cpuReset() leaves it -- except for
+    // Status, where IE stays clear. The payload disabled interrupts before jumping, and the
+    // incoming game re-enables them itself once osInitialize has installed its own exception
+    // preamble. Letting a retrace fire before that point resurrects the outgoing game's
+    // scheduler on top of the incoming game's boot stacks.
+    pCPU->anCP0[15] = 0xB00;
+    pCPU->anCP0[9] = 0x10000000;
+    cpuSetCP0_Status(pCPU, 0x2000FF00, 1);
+    pCPU->anCP0[16] = 0x6E463;
+
+    // Hand the recompiler the compile flag OoT's own setup would have asked for. This build
+    // only ever configured itself for MM (systemSetupGameALL's NZSE case, nCompileFlag
+    // |= 0x1010), but cpuGetPPC tests exactly three bits -- 0x1, 0x10 and 0x100 -- so MM's
+    // 0x1000 is inert and the 0x100 that OoT's case would have set (|= 0x110) is missing.
+    // The GameCube version forces the same bit for the same reason, there because the KSEG1
+    // to KSEG0 address masking it gates is what the combo's uncached accesses need.
+    pCPU->nCompileFlag |= 0x111;
+
+    // Keep bit 2 (resolve nPC in cpuExecuteUpdate), which cpuExecuteJump just set.
+    pCPU->nMode = 0x54;
+    if (cpuHackHandler(pCPU)) {
+        pCPU->nMode |= 0x10;
+    }
+
+    // Drop every recompiled function. The same N64 addresses now hold different code, and
+    // the recompiler only invalidates piecemeal on DMA, so stale functions would survive and
+    // the caller patching that rewrites call sites in place would keep jumping into them.
+    // Any failure here has to abort the switch: cpuExecuteJump would otherwise hand the
+    // recompiled code host address 0.
+    if (pCPU->gTree != NULL && !treeKill(pCPU)) {
+        OSReport("combo: treeKill failed, aborting switch\n");
+        return false;
+    }
+
+    comboHeapReset(pCPU->aHeap1Flag, ARRAY_COUNT(pCPU->aHeap1Flag));
+    comboHeapReset(pCPU->aHeap2Flag, ARRAY_COUNT(pCPU->aHeap2Flag));
+    comboHeapReset(gaHeapTreeFlag, ARRAY_COUNT(gaHeapTreeFlag));
+
+    pCPU->nCountAddress = 0;
+    memset(pCPU->aAddressCache, 0, sizeof(pCPU->aAddressCache));
+    pCPU->pFunctionLast = NULL;
+
+    if (pCPU->gHeap1 != NULL) {
+        DCInvalidateRange(pCPU->gHeap1, COMBO_HEAP1_SIZE);
+        ICInvalidateRange(pCPU->gHeap1, COMBO_HEAP1_SIZE);
+    }
+    if (pCPU->gHeap2 != NULL) {
+        DCInvalidateRange(pCPU->gHeap2, COMBO_HEAP2_SIZE);
+        ICInvalidateRange(pCPU->gHeap2, COMBO_HEAP2_SIZE);
+    }
+    if (gHeapTree != NULL) {
+        DCInvalidateRange(gHeapTree, COMBO_HEAPTREE_SIZE);
+        ICInvalidateRange(gHeapTree, COMBO_HEAPTREE_SIZE);
+    }
+
+    // Drop pending RCP interrupts and the N64 side exception; they belong to the game that
+    // just went away.
+    if (pMI != NULL) {
+        pMI->nMask = 0;
+        pMI->nInterrupt = 0;
+    }
+    gpSystem->bException = false;
+
+    // libraryFindVariables() resolves __osRunningThread, __osRunQueue and friends once, by
+    // parsing the __osException it found, and caches host pointers to them. Those pointers
+    // belong to the outgoing game, so put the object back in the state libraryEvent()'s
+    // case 2 leaves it in and let the next exception re-scan.
+    if (pLibrary != NULL) {
+        pLibrary->nFlag = 0;
+        pLibrary->nAddressException = -1;
+    }
+
+    if (pCPU->isMM) {
+        comboWriteExceptionVectors(pCPU, COMBO_MM_ENTRY, COMBO_MM_BOOT_END);
+    } else {
+        comboWriteExceptionVectors(pCPU, COMBO_OOT_ENTRY, COMBO_OOT_BOOT_END);
+    }
+
+    // Code hacks for the incoming game. systemSetupGameALL() only ran the NZSE case, so MM's
+    // two hacks are already registered and OoT's are not -- this build has no OoT case at
+    // all, the four below come from the oot-* builds' CZLE case in this same file. The
+    // return value is deliberately ignored: cpuSetCodeHack() reports failure for an address
+    // it already holds, and aCodeHack survives the switch, so from the second switch on
+    // these are all duplicates. Registering the other half's hacks is harmless either way --
+    // a hack only fires when the opcode it names really is the one in RAM. That last part
+    // also means these may simply never fire: the combo is built on OoT NTSC 1.0 while the
+    // oot-* channels ship 1.2, and the combo patches the game's code besides.
+    cpuSetCodeHack(pCPU, 0x80062D64, 0x94639680, -1);
+    cpuSetCodeHack(pCPU, 0x8006E468, 0x97040000, -1);
+    cpuSetCodeHack(pCPU, 0x8005BB14, 0x9463D040, -1);
+    cpuSetCodeHack(pCPU, 0x80066638, 0x97040000, -1);
+
+    OSReport("combo: switch done (isMM=%d): CPU reset, JIT flushed, HLE library re-scan armed\n", pCPU->isMM);
+    return true;
+}
+#endif
 
 bool systemReset(System* pSystem) {
     s64 nPC;

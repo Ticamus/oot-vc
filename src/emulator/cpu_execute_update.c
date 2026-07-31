@@ -73,13 +73,19 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
     }
 
     root = pCPU->gTree;
-    treeTimerCheck(pCPU);
-    if (pCPU->nRetrace == pCPU->nRetraceUsed && root->kill_number < 12) {
-        if (treeKillReason(pCPU, &root->kill_limit)) {
-            pCPU->survivalTimer++;
-        }
-        if (root->kill_limit != 0) {
-            treeCleanUp(pCPU, root);
+    //! Not in the original game. An OoTMM combo game switch has just called treeKill(), so
+    //! the tree is gone. Skip the collector this once: there is nothing to collect, and
+    //! letting treeCleanUp() run would risk killing the incoming game's entry function
+    //! between the cpuFindAddress() below compiling it and the caller using it.
+    if (root != NULL) {
+        treeTimerCheck(pCPU);
+        if (pCPU->nRetrace == pCPU->nRetraceUsed && root->kill_number < 12) {
+            if (treeKillReason(pCPU, &root->kill_limit)) {
+                pCPU->survivalTimer++;
+            }
+            if (root->kill_limit != 0) {
+                treeCleanUp(pCPU, root);
+            }
         }
     }
 

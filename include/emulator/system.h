@@ -383,6 +383,15 @@ bool systemCheckInterrupts(System* pSystem);
 bool systemExceptionPending(System* pSystem, SystemInterruptType nException);
 bool systemEvent(System* pSystem, s32 nEvent, void* pArgument);
 
+#if IS_MM
+//! Not in the original game. True when the loaded image is the OoTMM randomizer's combined
+//! ROM. Detected once in systemSetupGameALL(); everything guarded by it is inert for
+//! vanilla Majora's Mask.
+extern bool gIsOotmmCombo;
+
+bool comboEmulatorSwitchFix(Cpu* pCPU);
+#endif
+
 extern _XL_OBJECTTYPE gClassSystem;
 
 #ifdef __cplusplus

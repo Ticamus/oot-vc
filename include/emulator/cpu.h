@@ -340,7 +340,13 @@ struct Cpu {
     /* 0x12184 */ u32 nFlagCODE;
     /* 0x12188 */ u32 nCompileFlag;
     /* 0x1218C */ CpuOptimize nOptimize;
-};
+    //! Not in the original game. Which half of the OoTMM combo is running. Parked in the
+    //! slack between nOptimize and the real sizeof(Cpu) (0x121C0, from gClassCPU in the
+    //! extracted cpu.o), so the object the allocator hands out is unchanged -- cpu.c is
+    //! not linked from source, so its sizeof is the one that counts.
+    /* 0x121B4 */ bool isMM;
+    /* 0x121B8 */ u8 unk_121B8[0x8];
+}; // size = 0x121C0
 #else
 struct Cpu {
     /* 0x00000 */ s32 nMode;
