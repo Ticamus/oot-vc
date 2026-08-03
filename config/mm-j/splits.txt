@@ -31,9 +31,10 @@ emulator/frame.c:
 
 emulator/system.c:
 	.text       start:0x80015340 end:0x80017568
-	.data       start:0x8014E850 end:0x8014EA90
+	.data       start:0x8014E550 end:0x8014EA90
 	.bss        start:0x8017FFB8 end:0x80180150
 	.sdata      start:0x801FF818 end:0x801FF880
+	.sdata2     start:0x80201500 end:0x80201518
 
 emulator/cpu.c:
 	.text       start:0x80017568 end:0x8003C8C0
@@ -89,6 +90,7 @@ emulator/rdb.c:
 
 emulator/rsp.c:
 	.text       start:0x80054AE4 end:0x80071A74
+	.data       start:0x801516D8 end:0x80151E58
 
 emulator/mi.c:
 	.text       start:0x80071A74 end:0x80071FA8

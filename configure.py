@@ -343,7 +343,7 @@ config.libs = [
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/errordisplay.c"),
             Object(LinkedFor("oot-j", "oot-u"), "emulator/banner.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/stringtable.c"),
-            Object(NotLinked, "emulator/rsp.c"),
+            Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/rsp.c"),
             Object(NotLinked, "emulator/rdp.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/xlCoreRVL.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mt-u"), "emulator/xlPostRVL.c"),

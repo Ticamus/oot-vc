@@ -51,7 +51,7 @@ static bool rspFillObjSprite(Rsp* pRSP, s32 nAddress, uObjSprite* pSprite) {
     u8* pnData8;
     u8* pObjSprite;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pObjSprite, nAddress, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pObjSprite, nAddress, NULL)) {
         return false;
     }
 
@@ -82,7 +82,7 @@ bool rspFillObjBgScale(Rsp* pRSP, s32 nAddress, uObjBg* pBg) {
     u16* pnData16;
     u32* pnData32;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pObjBg, nAddress, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pObjBg, nAddress, NULL)) {
         return false;
     }
 
@@ -117,7 +117,7 @@ bool rspFillObjBg(Rsp* pRSP, s32 nAddress, uObjBg* pBg) {
     u16* pnData16;
     u32* pnData32;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pObjBg, nAddress, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pObjBg, nAddress, NULL)) {
         return false;
     }
 
@@ -178,7 +178,7 @@ static inline bool rspSetImage(Frame* pFrame, Rsp* pRSP, s32 nFormat, s32 nWidth
     nAddr = SEGMENT_ADDRESS(pRSP, nImage);
     pBuffer->nAddress = nAddr;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), &pBuffer->pData, nAddr, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), &pBuffer->pData, nAddr, NULL)) {
         return false;
     }
 
@@ -233,7 +233,7 @@ static bool tmemLoad_B(Frame* pFrame, Rsp* pRSP, u32 imagePtr, s16 loadLines, s1
     nAddr = SEGMENT_ADDRESS(pRSP, imagePtr);
     pBuffer->nAddress = nAddr;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), &pBuffer->pData, nAddr, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), &pBuffer->pData, nAddr, NULL)) {
         return false;
     }
 
@@ -661,7 +661,7 @@ bool rspFillObjTxtr(Rsp* pRSP, s32 nAddress, uObjTxtr* pTxtr, u32* pLoadType) {
     u8* pTxtrBlock;
     u32 nLoadType;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pTxtrBlock, nAddress, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pTxtrBlock, nAddress, NULL)) {
         return false;
     }
 
@@ -736,7 +736,7 @@ static bool rspObjLoadTxtr(Rsp* pRSP, Frame* pFrame, s32 nAddress) {
             pBuffer->nSize = nSizDefine;
             nAddr = SEGMENT_ADDRESS(pRSP, objTxtr.block.image);
             pBuffer->nAddress = nAddr;
-            if (!ramGetBuffer(SYSTEM_RAM(gpSystem), &pBuffer->pData, nAddr, NULL)) {
+            if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), &pBuffer->pData, nAddr, NULL)) {
                 return false;
             }
             if (!frameSetBuffer(pFrame, FBT_IMAGE)) {
@@ -946,9 +946,11 @@ static bool rspObjSprite(Rsp* pRSP, Frame* pFrame, s32 nAddress) {
     objSprite.s.imageH += nTexTrim5;
     pFrame->nLastX1 += nTexTrim2;
 
+#if !IS_MM
     if (pTile->nSize != 0 && objSprite.s.imageSiz == G_IM_SIZ_4b) {
         pTile->nSize = 0;
     }
+#endif
 
     if (pTile->nSize != 0) {
         switch (objSprite.s.imageSiz) {
@@ -1366,7 +1368,7 @@ static inline bool rspObjSubMatrix(Rsp* pRSP, Frame* pFrame, s32 nAddress) {
     s16 nX;
     s16 nY;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pObjSubMtx, nAddress, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pObjSubMtx, nAddress, NULL)) {
         return false;
     }
 
@@ -1396,7 +1398,7 @@ static bool rspObjMatrix(Rsp* pRSP, Frame* pFrame, s32 nAddress) {
     s16 nX;
     s16 nY;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pObjMtx, nAddress, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pObjMtx, nAddress, NULL)) {
         return false;
     }
 
@@ -1432,7 +1434,7 @@ static bool rspSetupS2DEX(Rsp* pRSP) {
     f32 fT;
     Frame* pFrame;
 
-    pFrame = SYSTEM_FRAME(gpSystem);
+    pFrame = SYSTEM_FRAME(RSP_HOST(pRSP));
 
     pRSP->twoDValues.aRotations[0][0] = 1.0f;
     pRSP->twoDValues.aRotations[1][0] = 0.0f;

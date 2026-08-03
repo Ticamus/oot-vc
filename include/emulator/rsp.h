@@ -34,6 +34,19 @@ extern "C" {
 #define RSP_REG_ADDR_LO(addr) ((addr) & 0x1F)
 #define RSP_TASK(pRSP) ((RspTask*)((u8*)pRSP->pDMEM + (SP_DMEM_SIZE - sizeof(RspTask))))
 
+// MM stores DMEM/IMEM inline in the Rsp object AND keeps pointers to them.
+// Everything reaches them through the pointers except rspGetDMEM/rspGetIMEM/
+// rspGetBuffer, which take the address of the inline arrays directly.
+#if IS_MM
+#define RSP_DMEM(pRSP) ((pRSP)->aDMEM)
+#define RSP_PUT16_T s16
+#define RSP_IMEM(pRSP) ((pRSP)->aIMEM)
+#else
+#define RSP_DMEM(pRSP) ((pRSP)->pDMEM)
+#define RSP_PUT16_T u16
+#define RSP_IMEM(pRSP) ((pRSP)->pIMEM)
+#endif
+
 #define GBI_COMMAND_HI(p) (((u32*)(p))[0])
 #define GBI_COMMAND_LO(p) (((u32*)(p))[1])
 
@@ -190,6 +203,113 @@ typedef struct RspUCode {
 } RspUCode; // size = 0x60
 
 typedef struct Rsp {
+#if IS_MM
+    /* 0x0000 */ s32 unk0000;
+    /* 0x0004 */ s32 nMode;
+    /* 0x0008 */ RspYield yield;
+    /* 0x00E0 */ u8 unk00E0[0x00E8 - 0x00E0];
+    /* 0x00E8 */ u8 aIMEM[SP_IMEM_SIZE];
+    /* 0x10E8 */ u8 aDMEM[SP_DMEM_SIZE];
+    /* 0x20E8 */ u32 n2TriMult;
+    /* 0x20EC */ s32 aStatus[4];
+    /* 0x20FC */ f32 aMatrixOrtho[4][4];
+    /* 0x213C */ u32 nMode2D;
+    /* 0x2140 */ struct __anon_0x57AB1 twoDValues;
+    /* 0x2160 */ s32 nPass;
+    /* 0x2164 */ u32 nZSortSubDL;
+    /* 0x2168 */ u32 nStatusSubDL;
+    /* 0x216C */ u32 nNumZSortLights;
+    /* 0x2170 */ s32 aLightAddresses[8];
+    /* 0x2190 */ s32 nAmbientLightAddress;
+    /* 0x2194 */ struct __anon_0x57BBE aZSortVertex[128];
+    /* 0x2B94 */ struct __anon_0x57CD6 aZSortNormal[128];
+    /* 0x2D14 */ struct __anon_0x57D55 aZSortMaterial[128];
+    /* 0x2F14 */ struct __anon_0x57DF8 aZSortMatrix[128];
+    /* 0x4F14 */ struct __anon_0x57E56 aZSortLight[8];
+    /* 0x4F44 */ s32 aZSortInvW[128];
+    /* 0x5144 */ s16 aZSortWiVal[128];
+    /* 0x5244 */ u32 nNumZSortMatrices;
+    /* 0x5248 */ u32 nNumZSortVertices;
+    /* 0x524C */ u32 nTotalZSortVertices;
+    /* 0x5250 */ u32 nNumZSortNormals;
+    /* 0x5254 */ u32 nNumZSortMaterials;
+    /* 0x5258 */ s32 anAudioBaseSegment[16];
+    /* 0x5298 */ s16* anAudioBuffer;
+    /* 0x529C */ s16 anADPCMCoef[5][2][8];
+    /* 0x533C */ u16 nAudioDMOutR[2];
+    /* 0x5340 */ u16 nAudioDMauxL[2];
+    /* 0x5344 */ u16 nAudioDMauxR[2];
+    /* 0x5348 */ u16 nAudioCount[2];
+    /* 0x534C */ u16 nAudioFlags;
+    /* 0x534E */ u16 nAudioDMEMIn[2];
+    /* 0x5352 */ u16 nAudioDMEMOut[2];
+    /* 0x5358 */ u32 nAudioLoopAddress;
+    /* 0x535C */ u32 nAudioDryAmt;
+    /* 0x5360 */ u32 nAudioWetAmt;
+    /* 0x5364 */ u32 nAudioVolL;
+    /* 0x5368 */ u32 nAudioVolR;
+    /* 0x536C */ u32 nAudioVolTGTL;
+    /* 0x5370 */ u32 nAudioVolRateLM;
+    /* 0x5374 */ u32 nAudioVolRateLL;
+    /* 0x5378 */ u32 nAudioVolTGTR;
+    /* 0x537C */ u32 nAudioVolRateRM;
+    /* 0x5380 */ u32 nAudioVolRateRL;
+    /* 0x5384 */ struct __anon_0x58107 vParams;
+    /* 0x5394 */ s16 stepF;
+    /* 0x5396 */ s16 stepL;
+    /* 0x5398 */ s16 stepR;
+    /* 0x539A */ u8 unk539A[0x58CC - 0x539A];
+    /* 0x58CC */ s32 (*pfUpdateWaiting)(void);
+    /* 0x58D0 */ u32 nTickLast;
+    /* 0x58D4 */ s32 unk2030;
+    /* 0x58D8 */ u16 nAudioMemOffset;
+    /* 0x58DA */ u16 nAudioADPCMOffset;
+    /* 0x58DC */ u16 nAudioScratchOffset;
+    /* 0x58DE */ u16 nAudioParBase;
+    /* 0x58E0 */ s32 nPC;
+    /* 0x58E4 */ s32 iDL;
+    /* 0x58E8 */ s32 nBIST;
+    /* 0x58EC */ struct System* pHost;
+    /* 0x58F0 */ u8* pDMEM;
+    /* 0x58F4 */ u8* pIMEM;
+    /* 0x58F8 */ s32 nStatus;
+    /* 0x58FC */ s32 nFullDMA;
+    /* 0x5900 */ s32 nBusyDMA;
+    /* 0x5904 */ s32 nSizeGet;
+    /* 0x5908 */ s32 nSizePut;
+    /* 0x590C */ s32 nSemaphore;
+    /* 0x5910 */ s32 nAddressSP;
+    /* 0x5914 */ s32 nGeometryMode;
+    /* 0x5918 */ s32 nAddressRDRAM;
+    /* 0x591C */ RspAudioUCodeType eTypeAudioUCode;
+    /* 0x5920 */ struct tXL_LIST* pListUCode;
+    /* 0x5924 */ s32 nCountVertex;
+    /* 0x5928 */ RspUCodeType eTypeUCode;
+    /* 0x592C */ u32 nVersionUCode;
+    /* 0x5930 */ s32 anBaseSegment[16];
+    /* 0x5970 */ u64* apDL[16];
+    /* 0x59B0 */ s32* Coeff;
+    /* 0x59B4 */ s16* QTable;
+    /* 0x59B8 */ s16* QYTable;
+    /* 0x59BC */ s16* QCbTable;
+    /* 0x59C0 */ s16* QCrTable;
+    /* 0x59C4 */ int* Zigzag;
+    /* 0x59C8 */ struct __anon_0x58360* rgbaBuf;
+    /* 0x59CC */ struct __anon_0x583EE* yuvBuf;
+    /* 0x59D0 */ int* dctBuf;
+    /* 0x59D4 */ u8 unk_59D4;
+    /* 0x59D5 */ u8 unk_59D5[3];
+    /* 0x59D8 */ s32 unk_59D8;
+    /* 0x59DC */ s32 unk_59DC;
+    /* 0x59E0 */ s32 unk_59E0;
+    /* 0x59E4 */ s32 unk_59E4;
+    /* 0x59E8 */ s32 unk_59E8;
+    /* 0x59EC */ s32 unk_59EC;
+    /* 0x59F0 */ s32 unk_59F0;
+    /* 0x59F4 */ s32 unk_59F4;
+    /* 0x59F8 */ s32 unk_59F8;
+    /* 0x59FC */ s32 unk_59FC;
+#else
     /* 0x0000 */ s32 nMode;
     /* 0x0004 */ s32 nBIST;
     /* 0x0008 */ s32 nStatus;
@@ -279,20 +399,6 @@ typedef struct Rsp {
     /* 0x59C4 */ s16* QCbTable;
     /* 0x59C8 */ s16* QCrTable;
     /* 0x59CC */ struct __anon_0x58360* rgbaBuf;
-#if IS_MM
-    /* 0x59D0 */ u8 unk_59D0[0x59D4 - 0x59D0];
-    /* 0x59D4 */ u8 unk_59D4;
-    /* 0x59D5 */ u8 unk_59D5[3];
-    /* 0x59D8 */ s32 unk_59D8;
-    /* 0x59DC */ s32 unk_59DC;
-    /* 0x59E0 */ s32 unk_59E0;
-    /* 0x59E4 */ s32 unk_59E4;
-    /* 0x59E8 */ s32 unk_59E8;
-    /* 0x59EC */ s32 unk_59EC;
-    /* 0x59F0 */ s32 unk_59F0;
-    /* 0x59F4 */ s32 unk_59F4;
-    /* 0x59F8 */ s32 unk_59F8;
-    /* 0x59FC */ s32 unk_59FC;
 #endif
 } Rsp; // size = 0x59D0 (0x5A00 for MM)
 
@@ -419,7 +525,6 @@ typedef struct zVtxDest {
     /* 0xE */ s16 wi;
 } zVtxDest; // size = 0x10
 
-bool rspFillObjBgScale(Rsp* pRSP, s32 nAddress, uObjBg* pBg);
 bool rspPut32(Rsp* pRSP, u32 nAddress, s32* pData);
 bool rspGet32(Rsp* pRSP, u32 nAddress, s32* pData);
 bool rspInvalidateCache(Rsp* pRSP, s32 nOffset0, s32 nOffset1);
