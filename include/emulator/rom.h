@@ -137,6 +137,10 @@ bool fn_800518EC(void);
 //! generated code seems to treat it as signed.
 bool romCopy(Rom* pROM, void* pTarget, s32 nOffset, s32 nSize, UnknownCallbackFunc* pCallback);
 
+//! Synchronous counterpart of romCopy(): it neither defers work nor touches pROM->copy, so it
+//! is usable when nothing will come back later to finish the transfer.
+bool romCopyImmediate(Rom* pROM, void* pTarget, s32 nOffsetROM, s32 nSize);
+
 bool romUpdate(Rom* pROM);
 bool romSetImage(Rom* pROM, char* szNameFile);
 bool romGetImage(Rom* pROM, char* acNameFile);

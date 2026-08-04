@@ -389,6 +389,12 @@ bool systemEvent(System* pSystem, s32 nEvent, void* pArgument);
 //! vanilla Majora's Mask.
 extern bool gIsOotmmCombo;
 
+//! Not in the original game. True from the moment the combo's switch stub takes over
+//! (comboGameSwitch2's jump through KSEG1) until comboEmulatorSwitchFix() has run. The stub
+//! runs with the RCP halted and the VI disabled, so emulator paths that normally wait for a
+//! retrace or a later update pass have to complete synchronously while this is set.
+extern bool gComboSwitching;
+
 bool comboEmulatorSwitchFix(Cpu* pCPU);
 #endif
 

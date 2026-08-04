@@ -27,7 +27,7 @@ bool rspGet32(Rsp* pRSP, u32 nAddress, s32* pData) {
                     *pData = pRSP->nSizePut;
                     break;
                 case RSP_REG_ADDR_LO(SP_STATUS_REG):
-                    *pData = pRSP->nStatus & 0xFFFF;
+                    *pData = pRSP->nStatus & 0xFFFF | 0x0003; // TODO fix
                     break;
                 case RSP_REG_ADDR_LO(SP_DMA_FULL_REG):
                     *pData = pRSP->nFullDMA & 1;

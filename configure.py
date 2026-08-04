@@ -304,7 +304,7 @@ config.libs = [
         "emulator",
         [
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/vc64_RVL.c"),
-            Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/system.c"),
+            Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/system.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/ai.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/vi.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/si.c"),

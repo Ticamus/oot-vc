@@ -20,6 +20,24 @@ extern s32 lbl_801FFF60;
 extern void fn_80054B64(s32 arg0);
 extern void fn_80085C84(void* pHelp);
 
+#if IS_MM
+//! Debug only. Armed by cpu_execute_jump.c when the OoTMM switch stub is entered. This
+//! function is the one hook the whole interpreter funnels through -- cpuExecuteOpcode,
+//! cpuExecuteCall and cpuExecuteIdle all call it -- so it sees the interpreted `cache` and
+//! MMIO opcodes and the direct `jal`s that never reach pfJump.
+//!
+//! Consecutive PCs inside one small region collapse into a single line with a hit count, so a
+//! polling loop shows up as one entry rather than flooding the log. COMBO_TRACE_BEAT then
+//! keeps printing while the guest stays in that region: heartbeats still arriving means it is
+//! spinning on an interpreted opcode, silence means it left the interpreter for good and is
+//! stuck inside a recompiled block.
+#define COMBO_TRACE_REGION 0x40
+#define COMBO_TRACE_BEAT 200000
+extern s32 gComboTraceLeft;
+static s32 gComboTracePC = 0;
+static s32 gComboTraceHits = 0;
+#endif
+
 #define CPU_SYSTEM(pCPU) ((System*)(pCPU)->pSystem)
 
 // Both helpers are inlined into cpuExecuteUpdate by MWCC and are used nowhere else, so
@@ -58,6 +76,22 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
     CpuTreeRoot* root;
 
     pSystem = CPU_SYSTEM(pCPU);
+
+#if IS_MM
+    //! Debug only, see COMBO_TRACE_REGION.
+    if (gComboTraceLeft > 0) {
+        s32 nDelta = pCPU->nPC - gComboTracePC;
+
+        if (nDelta >= COMBO_TRACE_REGION || nDelta <= -COMBO_TRACE_REGION) {
+            OSReport("combo: pc %08X (previous region x%d)\n", pCPU->nPC, gComboTraceHits);
+            gComboTracePC = pCPU->nPC;
+            gComboTraceHits = 1;
+            gComboTraceLeft--;
+        } else if (++gComboTraceHits % COMBO_TRACE_BEAT == 0) {
+            OSReport("combo: still around %08X, x%d\n", pCPU->nPC, gComboTraceHits);
+        }
+    }
+#endif
 
     if (!romUpdate(SYSTEM_ROM(pSystem))) {
         return false;
@@ -115,6 +149,19 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
             }
         }
     }
+
+#if IS_MM
+    //! Not in the original game. This is the point where the incoming game's VI has come back
+    //! to life: the block above only advances nRetraceUsed once viForceRetrace() succeeds, which
+    //! needs the guest to have reprogrammed VI_CONTROL_REG after waitSubsystems() zeroed it.
+    //! Until then the retrace gap cannot close, and romCopyUpdate() defers every callback-driven
+    //! copy -- which is why the switch window has to stay open across the incoming game's early
+    //! boot rather than ending at comboGameSwitch4's jump. See gComboSwitching in system.h.
+    if (gComboSwitching && pCPU->nRetrace == pCPU->nRetraceUsed) {
+        gComboSwitching = false;
+        OSReport("combo: retrace counters back in sync at %d, switch window closed\n", pCPU->nRetrace);
+    }
+#endif
 
     if (pCPU->nMode & 1) {
         nCounter = pCPU->anCP0[9];

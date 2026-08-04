@@ -140,17 +140,17 @@ static u32 contMap[][GCN_BTN_COUNT] = {
         N64_BTN_CLEFT,  // GCN_BTN_Y
         N64_BTN_Z,      // GCN_BTN_L
         N64_BTN_R,      // GCN_BTN_R
-        N64_BTN_CDOWN,  // GCN_BTN_Z
+        N64_BTN_L,  // GCN_BTN_Z
         N64_BTN_START,  // GCN_BTN_START
         N64_BTN_UNSET,  // GCN_BTN_UNK8
         N64_BTN_UNSET,  // GCN_BTN_UNK9
         N64_BTN_UNSET,  // GCN_BTN_UNK10
         N64_BTN_UNSET,  // GCN_BTN_UNK11
         N64_BTN_UNSET,  // GCN_BTN_DPAD_UP
-        N64_BTN_L,      // GCN_BTN_DPAD_DOWN
-        N64_BTN_L,      // GCN_BTN_DPAD_LEFT
-        N64_BTN_L,      // GCN_BTN_DPAD_RIGHT
-        N64_BTN_L,      // GCN_BTN_CSTICK_UP
+        N64_BTN_DUP,    // GCN_BTN_DPAD_UP
+        N64_BTN_DDOWN,  // GCN_BTN_DPAD_DOWN
+        N64_BTN_DLEFT,  // GCN_BTN_DPAD_LEFT
+        N64_BTN_DRIGHT, // GCN_BTN_DPAD_RIGHT
         N64_BTN_CUP,    // GCN_BTN_CSTICK_DOWN
         N64_BTN_CDOWN,  // GCN_BTN_CSTICK_LEFT
         N64_BTN_CLEFT,  // GCN_BTN_CSTICK_RIGHT
@@ -164,17 +164,17 @@ static u32 contMap[][GCN_BTN_COUNT] = {
         N64_BTN_CLEFT,  // GCN_BTN_Y
         N64_BTN_Z,      // GCN_BTN_L
         N64_BTN_R,      // GCN_BTN_R
-        N64_BTN_CDOWN,  // GCN_BTN_Z
+        N64_BTN_L,  // GCN_BTN_Z
         N64_BTN_START,  // GCN_BTN_START
         N64_BTN_UNSET,  // GCN_BTN_UNK8
         N64_BTN_UNSET,  // GCN_BTN_UNK9
         N64_BTN_UNSET,  // GCN_BTN_UNK10
         N64_BTN_UNSET,  // GCN_BTN_UNK11
         N64_BTN_UNSET,  // GCN_BTN_DPAD_UP
-        N64_BTN_L,      // GCN_BTN_DPAD_DOWN
-        N64_BTN_L,      // GCN_BTN_DPAD_LEFT
-        N64_BTN_L,      // GCN_BTN_DPAD_RIGHT
-        N64_BTN_L,      // GCN_BTN_CSTICK_UP
+        N64_BTN_DUP,    // GCN_BTN_DPAD_UP
+        N64_BTN_DDOWN,  // GCN_BTN_DPAD_DOWN
+        N64_BTN_DLEFT,  // GCN_BTN_DPAD_LEFT
+        N64_BTN_DRIGHT, // GCN_BTN_DPAD_RIGHT
         N64_BTN_CUP,    // GCN_BTN_CSTICK_DOWN
         N64_BTN_CDOWN,  // GCN_BTN_CSTICK_LEFT
         N64_BTN_CLEFT,  // GCN_BTN_CSTICK_RIGHT
@@ -2194,6 +2194,34 @@ bool fn_800166D0(System* pSystem, s32 nAddress0, s32 nAddress1, u32 nSize, Unkno
             return false;
         }
     } else {
+        //! Not in the original game. romCopyUpdate() makes no progress on a callback-driven
+        //! copy while pCPU->nRetrace != nRetraceUsed, and only cpuExecuteUpdate() closes that
+        //! gap, through viForceRetrace(). By the time the combo's switch stub issues its cart
+        //! DMA, waitSubsystems() has written VI_CONTROL_REG and VI_CURRENT_REG to 0, so the
+        //! guest VI produces no further retrace while the host post-retrace callback keeps
+        //! incrementing nRetrace: the copy is deferred forever, piDMA_Complete never clears the
+        //! PI busy bit, and the payload spins in waitForPi().
+        //!
+        //! romCopyImmediate() copies synchronously and touches none of the copy.* state the
+        //! deferral relies on, so it also sidesteps romCopyUpdate()'s romCheckOffsets() exit.
+        //! cpuBlock.pfUnknown still holds pfUnknown, so fn_8000A504() reaches piDMA_Complete
+        //! exactly as the deferred path would have.
+        if (gComboSwitching) {
+            Cpu* pCPU = SYSTEM_CPU(pSystem);
+
+            OSReport("combo: DMA rom %08X -> ram %08X size %08X sync (retrace %d/%d mode40 %d)\n", nAddress1,
+                     nAddress0, sp8, pCPU->nRetrace, pCPU->nRetraceUsed, (pCPU->nMode & 0x40) != 0);
+
+            if (!romCopyImmediate(SYSTEM_ROM(pSystem), spC, nAddress1, sp8)) {
+                return false;
+            }
+            if (!fn_8000A504()) {
+                return false;
+            }
+
+            return true;
+        }
+
         if (!romCopy(SYSTEM_ROM(pSystem), spC, nAddress1, sp8, fn_8000A504)) {
             return false;
         }

@@ -51,6 +51,12 @@ s32 fn_80050AFC(void) { return lbl_80200740; }
 //! allocation turns out to fail on hardware.
 #define ROM_CACHE_MAX 0x02000000 // 32 MB
 
+#if IS_MM
+//! Debug only, see romCopy(). gComboTraceLeft lives in cpu_execute_jump.c.
+extern s32 gComboTraceLeft;
+static s32 gComboRomBeat = 0;
+#endif
+
 //! Not in the original game. The ROM lives inside the channel's NAND content, not on a
 //! disc, so RLM_PART blocks are read with the content API rather than simulatorDVDRead()
 //! (a stub returning false, and living in vc64_RVL.c which is not linked for mm-j).
@@ -945,6 +951,19 @@ bool romCopy(Rom* pROM, void* pTarget, s32 nOffset, s32 nSize, UnknownCallbackFu
 
     nOffset &= 0x07FFFFFF;
 
+#if IS_MM
+    //! Debug only. Armed by cpu_execute_jump.c on entry to the OoTMM switch stub. The
+    //! payload's raw PI DMA reaches romCopy through piPut32 -> fn_800166D0, and the PI busy
+    //! bit only clears once pCallback runs, so any path that returns without calling it wedges
+    //! the payload in waitForPi().
+    if (gComboTraceLeft > 0) {
+        OSReport("combo: romCopy off %08X size %08X cb %08X (romSize %08X cache %08X mode %d "
+                 "bLoad %d)\n",
+                 nOffset, nSize, (u32)pCallback, pROM->nSize, pROM->nSizeCacheRAM, pROM->eModeLoad,
+                 pROM->bLoad);
+    }
+#endif
+
     if (pROM->nSizeCacheRAM == 0) {
         if (!xlFileOpen(&pFile, XLFT_BINARY, pROM->acNameFile)) {
             return false;
@@ -974,6 +993,12 @@ bool romCopy(Rom* pROM, void* pTarget, s32 nOffset, s32 nSize, UnknownCallbackFu
     }
 
     if (((nOffset + nSize) > pROM->nSize) && ((nSize = pROM->nSize - nOffset) < 0)) {
+#if IS_MM
+        //! Debug only, see above: this is the one exit that drops pCallback silently.
+        if (gComboTraceLeft > 0) {
+            OSReport("combo: romCopy past end of image, callback dropped\n");
+        }
+#endif
         return true;
     }
 
@@ -1076,6 +1101,18 @@ bool romCopyImmediate(Rom* pROM, void* pTarget, s32 nOffsetROM, s32 nSize) {
 
 bool romUpdate(Rom* pROM) {
     s32 nStatus;
+
+#if IS_MM
+    //! Debug only, see romCopy(). Rate limited: cpuExecuteUpdate calls this on every
+    //! interpreted opcode, so the payload's poll loop reaches it millions of times. Shows
+    //! whether a pending copy/load is simply never completing.
+    if (gComboTraceLeft > 0 && ++gComboRomBeat % 400000 == 0) {
+        OSReport("combo: romUpdate copy(bWait %d off %08X size %08X) load(bWait %d bDone %d "
+                 "result %08X read %08X iBlock %d)\n",
+                 pROM->copy.bWait, pROM->copy.nOffset, pROM->copy.nSize, pROM->load.bWait,
+                 pROM->load.bDone, pROM->load.nResult, pROM->load.nSizeRead, pROM->load.iBlock);
+    }
+#endif
 
     if (pROM->copy.bWait || pROM->load.bWait) {
         if (pROM->load.bDone && pROM->load.nResult == pROM->load.nSizeRead) {
