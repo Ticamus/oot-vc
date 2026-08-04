@@ -207,7 +207,8 @@ typedef struct Rsp {
     /* 0x0000 */ s32 unk0000;
     /* 0x0004 */ s32 nMode;
     /* 0x0008 */ RspYield yield;
-    /* 0x00E0 */ u8 unk00E0[0x00E8 - 0x00E0];
+    /* 0x00E0 */ u8 unk00E0[4];
+    /* 0x00E4 */ s32 unk00E4;
     /* 0x00E8 */ u8 aIMEM[SP_IMEM_SIZE];
     /* 0x10E8 */ u8 aDMEM[SP_DMEM_SIZE];
     /* 0x20E8 */ u32 n2TriMult;

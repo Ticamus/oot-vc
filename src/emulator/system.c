@@ -1627,7 +1627,7 @@ static bool systemSetupGameALL(System* pSystem) {
 
         pSystem->storageDevice = SOT_ROM;
 
-        pRSP->nMode = 0;
+        pRSP->unk0000 = 0;
         pRSP->unk_59D4 = 1;
 
         defaultConfiguration = (nClockSpeed = OS_TIME_SPEED) / 250 & ~3;

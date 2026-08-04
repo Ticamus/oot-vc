@@ -89,8 +89,16 @@ emulator/rdb.c:
 	.sdata      start:0x801FFF50 end:0x801FFF58
 
 emulator/rsp.c:
-	.text       start:0x80054AE4 end:0x80071A74
-	.data       start:0x801516D8 end:0x80151E58
+	.text       start:0x80054AE4 end:0x80071370
+	.data       start:0x801516D8 end:0x80151D94
+
+emulator/rspGet32.c:
+	.text       start:0x80071370 end:0x800714BC
+	.data       start:0x80151D94 end:0x80151E08
+
+emulator/rsp_2.c:
+	.text       start:0x800714BC end:0x80071A74
+	.data       start:0x80151E08 end:0x80151E58
 
 emulator/mi.c:
 	.text       start:0x80071A74 end:0x80071FA8

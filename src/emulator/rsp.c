@@ -4,6 +4,8 @@
 #include "emulator/system.h"
 #include "emulator/vc64_RVL.h"
 #include "revolution/os/OSAlarm.h"
+#include "revolution/os/OSThread.h"
+#include "emulator/xlHeap.h"
 
 // MM caches the owning System in the Rsp object rather than reaching for the
 // global; OoT reads the global directly, so this expands to the original code.
@@ -25,9 +27,35 @@ static s32 sRspTimeSliceActive = 1;
 extern s32 lbl_801FFF5C;
 extern OSAlarm lbl_801809B0;
 extern s32 lbl_8020080C;
+extern s32 lbl_8020076C;
 extern u8 lbl_80180660[];
+extern volatile s32 lbl_80200798;
+extern void* lbl_80200794;
 extern void fn_800988E8(void* pArg0, s32 nArg1, s32 nArg2);
 extern void fn_80092BFC(OSAlarm* pAlarm);
+extern OSThread* fn_80093024(void);
+extern void fn_80098888(void* pArg0, void* pArg1, s32 nArg2);
+extern void fn_8009301C(OSAlarm* pAlarm, void* pArg1);
+extern void fn_80092B78(OSAlarm* pAlarm, s64 nTick, s32 nArg2, s32 nArg3, void (*pHandler)(void));
+extern OSThread lbl_801809E0;
+extern bool fn_80056B48(Rsp* pRSP);
+static bool rspParseABI(Rsp* pRSP, RspTask* pTask);
+
+// MM-only: marks the RSP audio thread as having been started.
+void fn_80054AE4(void) {
+    lbl_8020076C = 1;
+}
+
+// MM-only: toggles the RSP audio thread between suspended and running.
+void fn_80054B1C(void) {
+    OSThread* pThread = fn_80093024();
+    lbl_80200798 ^= 1;
+    if (lbl_80200798 == 0) {
+        OSSuspendThread(pThread);
+    } else {
+        OSResumeThread(pThread);
+    }
+}
 
 // MM-only: global (not per-RSP) alarm handler that clears the RSP time-slice
 // flag and drives the audio/video sync update; the RSP-local counterpart is
@@ -44,17 +72,15 @@ static void fn_80054B10(OSAlarm* pAlarm, OSContext* pContext) {
 }
 
 // MM-only: (re)arms the RSP time-slice alarm and drives one RSP update.
-// TODO: exact tick-value reconstruction from pRSP->unk_59E0/59E4 and the
-// second (global) alarm arm below are not yet byte-matched -- see
-// tools/m2c_helpers/README.md for the decompilation recipe used so far.
-void fn_80054B64(s32 nArg0) {
+s32 fn_80054B64(s32 nArg0) {
     OSAlarm sAlarm;
     Rsp* pRSP;
+    Rsp* pNext;
 
     OSCreateAlarm(&sAlarm);
     pRSP = SYSTEM_RSP(gpSystem);
     if (sRspTimeSliceActive != 0) {
-        return;
+        return 0;
     }
 
     lbl_801FFF5C = 1;
@@ -64,12 +90,67 @@ void fn_80054B64(s32 nArg0) {
     sRspTimeSliceActive = 1;
 
     if (pRSP->nMode & 0x12) {
-        Rsp* pNext = *(Rsp**)&pRSP->unk_59DC;
+        pNext = *(Rsp**)&pRSP->unk_59DC;
         sRspTimeSliceActive = 1;
         if (lbl_8020080C == 0) {
             fn_80092BFC(&lbl_801809B0);
             OSSetAlarm(&lbl_801809B0, (s64)(u32)pNext, fn_80054AF0);
         }
+    }
+
+    return 0;
+}
+
+// MM-only: RSP audio-processing thread body (the `OSThreadFunc` passed to
+// `OSCreateThread` in `rspEvent`); the thread's own `OSThread*` is passed back
+// in as its argument so it can suspend itself each iteration.
+void* fn_80054C34(void* pArg) {
+    u8* pBuf = (u8*)pArg;
+    Rsp* pRSP = SYSTEM_RSP(gpSystem);
+    Cpu* pCPU = SYSTEM_CPU(gpSystem);
+    OSAlarm sAlarm;
+
+    fn_80098888(pBuf + 0x31C, pBuf + 0x33C, 4);
+
+#ifdef __MWERKS__
+    // clang-format off
+    asm {
+        li      r3, 4
+        oris    r3, r3, 4
+        mtspr   914, r3
+        li      r3, 5
+        oris    r3, r3, 5
+        mtspr   915, r3
+        li      r3, 6
+        oris    r3, r3, 6
+        mtspr   916, r3
+        li      r3, 7
+        oris    r3, r3, 7
+        mtspr   917, r3
+    }
+    // clang-format on
+#endif
+
+    OSCreateAlarm(&sAlarm);
+
+    for (;;) {
+        OSSuspendThread((OSThread*)pBuf);
+        DCFlushRange(pRSP, sizeof(Rsp));
+        // sizeof(Cpu) here would be 0x121B8 (our IS_MM Cpu layout pads to 8
+        // bytes); ground truth wants 0x121C0 (16-byte padding) -- 8 bytes off,
+        // suggesting our Cpu struct for MM is still missing 8 bytes somewhere.
+        // See project_cpu_c_matching memory note.
+        DCFlushRange(pCPU, 0x121C0);
+        DCFlushRange(lbl_80200794, 0x40);
+        fn_8009301C(&sAlarm, pBuf);
+        lbl_80200798 = 1;
+        fn_80092B78(&sAlarm, OSGetTime(), pRSP->unk_59F0, pRSP->unk_59F4, fn_80054B1C);
+        rspParseABI(pRSP, lbl_80200794);
+        fn_80092BFC(&sAlarm);
+        pRSP->nStatus |= 0x201;
+        xlObjectEvent(RSP_HOST(pRSP), 0x1000, (void*)5);
+        DCStoreRange(pRSP, sizeof(Rsp));
+        DCStoreRange(pCPU, 0x121C0);
     }
 }
 #endif

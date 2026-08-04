@@ -177,6 +177,7 @@ bool rspFrameComplete(Rsp* pRSP) {
         OSReport(szMsg);
     }
 
+    pRSP->nMode |= 4;
     return true;
 }
 
@@ -545,6 +546,8 @@ bool rspGet16(Rsp* pRSP, u32 nAddress, s16* pData) {
     return true;
 }
 
+//! @note mm-j links src/emulator/rspGet32.c instead of this body; keep the two in sync
+//! until rsp.c as a whole can be linked.
 bool rspGet32(Rsp* pRSP, u32 nAddress, s32* pData) {
     switch ((nAddress >> 0xC) & 0xFFF) {
         case RSP_REG_ADDR_HI(SP_DMEM_START):
@@ -684,25 +687,71 @@ bool rspGetBuffer(Rsp* pRSP, void** pBuffer, s32 nOffset, u32* pnSize) {
 
 bool rspEvent(Rsp* pRSP, s32 nEvent, void* pArgument) {
     switch (nEvent) {
-        case 2:
+        case 2: {
+#if IS_MM
+            u32 nBusTicks;
+            u32 nScaled;
+            u32 nBase;
+            void** ppStack;
+#endif
             pRSP->nPC = 0;
             pRSP->unk2030 = -1;
             pRSP->nStatus = 1;
             pRSP->nPass = 1;
             pRSP->nMode = 0;
             pRSP->yield.bValid = false;
+#if !IS_MM
             pRSP->pfUpdateWaiting = NULL;
+#else
+            pRSP->unk00E4 = 0;
+#endif
             if (!xlListMake(&pRSP->pListUCode, 0x60)) {
                 return false;
             }
+#if IS_MM
+            pRSP->pDMEM = pRSP->aDMEM;
+            pRSP->pIMEM = pRSP->aIMEM;
+#endif
             if (!rspSetupS2DEX(pRSP)) {
                 return false;
             }
+#if IS_MM
+            if (!fn_80056B48(pRSP)) {
+                return false;
+            }
+#else
             if (!rspInitAudioDMEM1(pRSP)) {
                 return false;
             }
+#endif
             pRSP->eTypeAudioUCode = RUT_NOCODE;
+
+#if IS_MM
+            pRSP->unk_59D8 = 0;
+            pRSP->unk_59E0 = 0;
+            pRSP->unk_59F8 = 0;
+            pRSP->unk_59E8 = 0;
+
+            nBusTicks = *(u32*)0x800000F8 >> 2;
+            nScaled = (u32)(((u64)0x10624DD3 * nBusTicks) >> 32);
+            nBase = nScaled >> 6;
+            pRSP->unk_59F4 = nBase;
+            pRSP->unk_59DC = nBase * 4;
+            pRSP->unk_59E4 = nBase * 7;
+            pRSP->unk_59FC = nBase * 7;
+            pRSP->unk_59EC = nBase * 4;
+            pRSP->unk_59F0 = 0;
+
+            ppStack = (void**)((u8*)&lbl_801809E0 + sizeof(OSThread));
+            if (!xlHeapTake(ppStack, 0x8000 | 0x70000000)) {
+                return false;
+            }
+
+            OSCreateThread(&lbl_801809E0, fn_80054C34, &lbl_801809E0, (u8*)*ppStack + 0x8000, 0x8000, 9, 0);
+            OSResumeThread(&lbl_801809E0);
+#endif
             break;
+        }
         case 3:
             if (!xlListFree(&pRSP->pListUCode)) {
                 return false;
@@ -721,9 +770,11 @@ bool rspEvent(Rsp* pRSP, s32 nEvent, void* pArgument) {
         case 0:
         case 1:
             break;
-        case 0x1003:
+#if !IS_MM
         case 0x1004:
         case 0x1007:
+#endif
+        case 0x1003:
             break;
         default:
             return false;
