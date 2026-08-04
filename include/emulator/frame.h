@@ -167,12 +167,21 @@ typedef struct LookAt {
 } LookAt; // size = 0x34
 
 typedef struct Vertex {
+#if IS_MM
+    /* 0x00 */ u8 unk_00[8];
+    /* 0x08 */ f32 rSum;
+    /* 0x0C */ f32 rS;
+    /* 0x10 */ f32 rT;
+    /* 0x14 */ Vec3f vec;
+    /* 0x20 */ u8 anColor[4];
+#else
     /* 0x00 */ f32 rSum;
     /* 0x04 */ f32 rS;
     /* 0x08 */ f32 rT;
     /* 0x0C */ Vec3f vec;
     /* 0x18 */ u8 anColor[4];
-} Vertex; // size = 0x1C
+#endif
+} Vertex; // size = 0x1C (0x24 for MM)
 
 typedef union TMEM_Block {
     /* 0x0 */ u8 u8[4096];
@@ -262,6 +271,132 @@ typedef struct Rectangle {
 
 //! TODO: fix the names and offsets
 typedef struct Frame {
+#if IS_MM
+    // MM's Frame is 0x559B8 (OoT: 0x3F240). Offsets below are anchored on real
+    // evidence: every field rsp.c or rom.c touches was pinned by diffing our
+    // build's load/store displacements against the split object
+    // (tools/m2c_helpers/offset_map.py). The `unkXXXX` blocks are unmapped
+    // MM-only growth -- their internal contents are unknown, only their size is
+    // constrained by the surrounding anchors.
+    /* 0x00000 */ u32 anCIMGAddresses[8];
+    /* 0x00020 */ u16 nNumCIMGAddresses;
+    /* 0x00024 */ s32 unk_24;
+    /* 0x00028 */ s32 unk_28;
+    /* 0x0002C */ s32 unk_2C;
+    /* 0x00030 */ s32 unk_30;
+    /* 0x00034 */ s32 unk_34;
+    /* 0x00038 */ s32 unk_38;
+    /* 0x0003C */ s32 unk_3C;
+    /* 0x00040 */ s32 unk_40;
+    /* 0x00044 */ s32 unk_44;
+    /* 0x00048 */ u32 unk_48;
+    /* 0x0004C */ u32 unk_4C;
+    /* 0x00050 */ bool bBlurOn;
+    /* 0x00054 */ bool bHackPause;
+    /* 0x00058 */ s32 nHackCount;
+    /* 0x0005C */ s32 nFrameCounter;
+    /* 0x00060 */ bool bPauseThisFrame;
+    /* 0x00064 */ bool bCameFromBomberNotes;
+    /* 0x00068 */ bool bInBomberNotes;
+    /* 0x0006C */ s32 bShrinking; // bitfield (not a bool)
+    /* 0x00070 */ s32 bSnapShot; // bitfield (not a bool)
+    /* 0x00074 */ u32 bUsingLens;
+    /* 0x00078 */ u8 cBlurAlpha;
+    /* 0x0007C */ bool bBlurredThisFrame;
+    /* 0x00080 */ s32 nFrameCIMGCalls;
+    /* 0x00084 */ bool bModifyZBuffer;
+    /* 0x00088 */ s32 nZBufferSets;
+    /* 0x0008C */ s32 nLastFrameZSets;
+    /* 0x00090 */ bool bPauseBGDrawn;
+    /* 0x00094 */ u64* pnGBI;
+    /* 0x00098 */ u32 nFlag;
+    /* 0x0009C */ u8 unk_9C[0x000B8 - 0x0009C];
+    /* 0x000B8 */ f32 unk_A4;
+    /* 0x000BC */ f32 unk_A8;
+    /* 0x000C0 */ f32 rScaleX;
+    /* 0x000C4 */ f32 rScaleY;
+    /* 0x000C8 */ u32 nCountFrames;
+    /* 0x000CC */ volatile u32 nMode;
+    /* 0x000D0 */ u32 aMode[FMT_COUNT];
+    /* 0x000F8 */ Viewport viewport;
+    /* 0x00108 */ u8 unk_108[0x00138 - 0x00108];
+    /* 0x00138 */ FrameBuffer aBuffer[FBT_COUNT];
+    /* 0x00188 */ u32 nOffsetDepth0;
+    /* 0x0018C */ u32 nOffsetDepth1;
+    /* 0x00190 */ s32 nWidthLine;
+    /* 0x00194 */ f32 rDepth;
+    /* 0x00198 */ f32 rDelta;
+    /* 0x0019C */ u8 unk_19C[0x001E4 - 0x0019C];
+    /* 0x001E4 */ FrameDrawFunc aDraw[4];
+    /* 0x001F4 */ s32 nCountLight;
+    /* 0x001F8 */ Light aLight[8];
+    /* 0x003D8 */ LookAt lookAt;
+    /* 0x0040C */ s32 nCountVertex;
+    /* 0x00410 */ u8 unk_410[0x00570 - 0x00410];
+    /* 0x00570 */ Vertex aVertex[80];
+    /* 0x010B0 */ TextureMemory TMEM;
+    /* 0x020B0 */ void* unk_20B0;
+    /* 0x020B4 */ void* aPixelData;
+    /* 0x020B8 */ void* aColorData;
+    /* 0x020BC */ s32 nBlocksPixel;
+    /* 0x020C0 */ s32 nBlocksMaxPixel;
+    /* 0x020C4 */ s32 nBlocksColor;
+    /* 0x020C8 */ s32 nBlocksMaxColor;
+    /* 0x020CC */ s32 nBlocksTexture;
+    /* 0x020D0 */ s32 nBlocksMaxTexture;
+    /* 0x020D4 */ u32 anPackPixel[48];
+    /* 0x02194 */ u32 anPackColor[320];
+    /* 0x02694 */ u32 nAddressLoad;
+    /* 0x02698 */ u32 nCodePixel;
+    /* 0x0269C */ s32 unk_2228;
+    /* 0x026A0 */ u32 nTlutCode[16];
+    // Bulk of MM's growth. Sits somewhere between nTlutCode and aTexture; only
+    // the total is pinned (by aTile landing at 0x548FC).
+    /* 0x026E0 */ u8 unk_26E0[0x187E0 - 0x026E0];
+    /* 0x187E0 */ FrameTexture aTexture[2048];
+    /* 0x507E0 */ u32 anTextureUsed[64];
+    /* 0x508E0 */ FrameTexture* apTextureCached[4096];
+    /* 0x548E0 */ FrameTexture* unk_3E36C;
+    /* 0x548E4 */ s32 iTileLoad;
+    /* 0x548E8 */ u32 n2dLoadTexType;
+    /* 0x548EC */ s32 nLastX0;
+    /* 0x548F0 */ s32 nLastY0;
+    /* 0x548F4 */ s32 nLastX1;
+    /* 0x548F8 */ s32 nLastY1;
+    /* 0x548FC */ Tile aTile[8];
+    /* 0x54A5C */ s32 anSizeX[FS_COUNT];
+    /* 0x54A64 */ s32 anSizeY[FS_COUNT];
+    /* 0x54A6C */ s32 iHintMatrix;
+    /* 0x54A70 */ s32 iMatrixModel;
+    /* 0x54A74 */ s32 iHintProjection;
+    /* 0x54A78 */ Mtx44 matrixView;
+    /* 0x54AB8 */ s32 iHintLast;
+    /* 0x54ABC */ s32 iHintHack;
+    /* 0x54AC0 */ FrameMatrixProjection eTypeProjection;
+    /* 0x54AC4 */ Mtx44 aMatrixModel[10];
+    /* 0x54D44 */ Mtx44 matrixProjection;
+    /* 0x54D84 */ Mtx44 matrixProjectionExtra;
+    /* 0x54DC4 */ MatrixHint aMatrixHint[64];
+    /* 0x556C4 */ Mtx44 unk_3F150;
+    /* 0x55704 */ Mtx44 unk_3F190;
+    /* 0x55744 */ Mtx44 unk_3F1D0;
+    /* 0x55784 */ f32 unk_3F210; // rNear
+    /* 0x55788 */ f32 unk_3F214; // rFar
+    /* 0x5578C */ u8 unk_5578C[0x558E4 - 0x5578C];
+    /* 0x558E4 */ u8 primLODmin;
+    /* 0x558E5 */ u8 primLODfrac;
+    /* 0x558E6 */ u8 lastTile;
+    /* 0x558E7 */ u8 iTileDrawn;
+    /* 0x558E8 */ GXColor aColor[FCT_COUNT];
+    /* 0x558FC */ u32 nModeVtx;
+    /* 0x55900 */ u16* nTempBuffer;
+    /* 0x55904 */ u16* nCopyBuffer;
+    /* 0x55908 */ u8* nCameraBuffer;
+    /* 0x5590C */ u8 unk_5590C[0x55928 - 0x5590C];
+    /* 0x55928 */ f32 unk_55928;
+    /* 0x5592C */ u8 unk_5592C[0x559B8 - 0x5592C];
+#else
+
     /* 0x00000 */ u32 anCIMGAddresses[8];
     /* 0x00020 */ u16 nNumCIMGAddresses;
     /* 0x00024 */ s32 unk_24;
@@ -323,10 +458,6 @@ typedef struct Frame {
     /* 0x01C54 */ s32 nBlocksMaxColor;
     /* 0x01C58 */ s32 nBlocksTexture;
     /* 0x01C5C */ s32 nBlocksMaxTexture;
-#if IS_MM
-    u8 MM_pad1[0x450];
-    s32 unk_20B0;
-#endif
     /* 0x01C60 */ u32 anPackPixel[48];
     /* 0x01D20 */ u32 anPackColor[320];
     /* 0x02220 */ u32 nAddressLoad;
@@ -371,12 +502,6 @@ typedef struct Frame {
     /* 0x3F234 */ u16* nTempBuffer;
     /* 0x3F238 */ u16* nCopyBuffer;
     /* 0x3F23C */ u8* nCameraBuffer;
-#if IS_MM
-    // MM_pad1 above adds 0x454 bytes not reflected in the OoT-derived offset
-    // comment on this field, so the gap size compensates for it.
-    /* 0x3F240 */ u8 unk_3F240[0x55928 - 0x3F240 - 0x454];
-    /* 0x55928 */ f32 unk_55928;
-    /* 0x5592C */ u8 unk_5592C[0x559B8 - 0x5592C];
 #endif
 } Frame; // size = 0x3F240 (0x559B8 for MM)
 

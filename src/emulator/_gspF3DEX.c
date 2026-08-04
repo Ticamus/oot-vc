@@ -36,7 +36,7 @@ static bool rspSetGeometryMode1(Rsp* pRSP, s32 nMode) {
         nModeFrame |= 0x400;
     }
 
-    if (!frameSetMode(SYSTEM_FRAME(gpSystem), FMT_GEOMETRY, nModeFrame)) {
+    if (!frameSetMode(SYSTEM_FRAME(RSP_HOST(pRSP)), FMT_GEOMETRY, nModeFrame)) {
         return false;
     }
 
@@ -54,12 +54,12 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
     Frame* pFrame;
 
     pnGBI = *ppnGBI;
-    pFrame = SYSTEM_FRAME(gpSystem);
+    pFrame = SYSTEM_FRAME(RSP_HOST(pRSP));
 
     matrix[0][0] = 0.0f;
 
-    nCommandHi = GBI_COMMAND_HI(pnGBI);
     nCommandLo = GBI_COMMAND_LO(pnGBI);
+    nCommandHi = GBI_COMMAND_HI(pnGBI);
 
     *ppnGBI = ++pnGBI;
     pFrame->pnGBI = pnGBI;
@@ -108,8 +108,8 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                 nDLAdrs = nCommandHi & 0xFFFF;
                 nFlag2D = nCommandLo;
 
-                nCommandHi = GBI_COMMAND_HI(pnGBI);
                 nCommandLo = GBI_COMMAND_LO(pnGBI);
+                nCommandHi = GBI_COMMAND_HI(pnGBI);
                 *ppnGBI = ++pnGBI;
 
                 bPush = (nCommandHi >> 16) & 0xFF;
@@ -177,7 +177,7 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         void* pData;
                         s32 nAddress = SEGMENT_ADDRESS(pRSP, nCommandLo);
 
-                        if (!ramGetBuffer(SYSTEM_RAM(gpSystem), &pData, nAddress, NULL)) {
+                        if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), &pData, nAddress, NULL)) {
                             return false;
                         }
                         if (!frameSetViewport(pFrame, pData)) {
@@ -189,7 +189,7 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         void* pData;
                         s32 nAddress = SEGMENT_ADDRESS(pRSP, nCommandLo);
 
-                        if (!ramGetBuffer(SYSTEM_RAM(gpSystem), &pData, nAddress, NULL)) {
+                        if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), &pData, nAddress, NULL)) {
                             return false;
                         }
                         if (!frameSetLookAt(pFrame, 1, pData)) {
@@ -201,7 +201,7 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         void* pData;
                         s32 nAddress = SEGMENT_ADDRESS(pRSP, nCommandLo);
 
-                        if (!ramGetBuffer(SYSTEM_RAM(gpSystem), &pData, nAddress, NULL)) {
+                        if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), &pData, nAddress, NULL)) {
                             return false;
                         }
                         if (!frameSetLookAt(pFrame, 0, pData)) {
@@ -222,7 +222,7 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         s32 iLight = (((nCommandHi >> 16) & 0xFF) - 0x86) >> 1;
                         s32 nAddress = SEGMENT_ADDRESS(pRSP, nCommandLo);
 
-                        if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pData, nAddress, NULL)) {
+                        if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pData, nAddress, NULL)) {
                             return false;
                         }
                         if (!frameSetLight(pFrame, iLight, pData)) {
@@ -265,7 +265,7 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                 s32 iVertex0;
                 s32 nAddress = SEGMENT_ADDRESS(pRSP, nCommandLo);
 
-                if (!ramGetBuffer(SYSTEM_RAM(gpSystem), &pBuffer, nAddress, NULL)) {
+                if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), &pBuffer, nAddress, NULL)) {
                     return false;
                 }
                 if (pRSP->eTypeUCode == RUT_FAST3D) {
@@ -339,8 +339,8 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         return false;
                     }
 
-                    nCommandHi = GBI_COMMAND_HI(pnGBI);
                     nCommandLo = GBI_COMMAND_LO(pnGBI);
+                    nCommandHi = GBI_COMMAND_HI(pnGBI);
                     iVertex += 3;
                     if (((nCommandHi >> 24) & 0xFF) == 0xBF) { // G_TRI1
                         *ppnGBI = ++pnGBI;
@@ -509,8 +509,8 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                             return false;
                         }
 
-                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         nCommandLo = GBI_COMMAND_LO(pnGBI);
+                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         iVertex += 6;
                         if (((nCommandHi >> 24) & 0xFF) == 0xB5) { // G_LINE3D
                             *ppnGBI = ++pnGBI;
@@ -536,8 +536,8 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                             return false;
                         }
 
-                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         nCommandLo = GBI_COMMAND_LO(pnGBI);
+                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         iVertex += 3;
                         if (((nCommandHi >> 24) & 0xFF) == 0xB5) { // G_LINE3D
                             *ppnGBI = ++pnGBI;
@@ -556,8 +556,8 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
         case 0xB4: { // F3DEX1: G_RDPHALF_1
             u32 nValue = nCommandLo;
 
-            nCommandHi = GBI_COMMAND_HI(pnGBI);
             nCommandLo = GBI_COMMAND_LO(pnGBI);
+            nCommandHi = GBI_COMMAND_HI(pnGBI);
             switch ((nCommandHi >> 24) & 0xFF) {
                 case 0xB0: { // G_BRANCH_Z
                     *ppnGBI = ++pnGBI;
@@ -674,8 +674,8 @@ static bool rspParseGBI_F3DEX1(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         }
 
                         iVertex += pRSP->n2TriMult * 6;
-                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         nCommandLo = GBI_COMMAND_LO(pnGBI);
+                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         if (((nCommandHi >> 24) & 0xFF) == 0xB1) { // G_TRI2
                             *ppnGBI = ++pnGBI;
                         } else {
@@ -740,7 +740,7 @@ static bool rspGeometryMode(Rsp* pRSP, s32 nSet, s32 nClr) {
         nMode |= 0x800;
     }
 
-    if (!frameSetMode(SYSTEM_FRAME(gpSystem), FMT_GEOMETRY, nMode)) {
+    if (!frameSetMode(SYSTEM_FRAME(RSP_HOST(pRSP)), FMT_GEOMETRY, nMode)) {
         return false;
     }
 
@@ -758,9 +758,9 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
     Frame* pFrame;
 
     pnGBI = *ppnGBI;
-    pFrame = SYSTEM_FRAME(gpSystem);
-    nCommandHi = GBI_COMMAND_HI(pnGBI);
+    pFrame = SYSTEM_FRAME(RSP_HOST(pRSP));
     nCommandLo = GBI_COMMAND_LO(pnGBI);
+    nCommandHi = GBI_COMMAND_HI(pnGBI);
 
     bDone = 0;
 
@@ -769,8 +769,6 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
 
     switch (nCommandHi >> 24) {
         case 0x00: // G_NOOP
-        case 0x80:
-        case 0x81:
             break;
         case 0xB1:
             return false;
@@ -801,8 +799,8 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
         case 0xE1: { // G_RDPHALF_1
             u32 nValue = nCommandLo;
 
-            nCommandHi = GBI_COMMAND_HI(pnGBI);
             nCommandLo = GBI_COMMAND_LO(pnGBI);
+            nCommandHi = GBI_COMMAND_HI(pnGBI);
             switch ((nCommandHi >> 24) & 0xFF) {
                 case 0x4: { // G_BRANCH_Z
                     *ppnGBI = ++pnGBI;
@@ -849,8 +847,6 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                 return false;
             }
             break;
-        case 0xDD: // G_LOAD_UCODE
-            return false;
         case 0xDC:
             if (pRSP->eTypeUCode == RUT_S2DEX2) { // S2DEX2: G_MOVEMEM
                 if (((nCommandHi >> 16) & 0xFF) == 7 && (nCommandHi & 0xFFFF) == 2) {
@@ -880,7 +876,7 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                 nId = nCommandHi & 0x3E;
                 nFlag = nCommandHi & 1;
 
-                if (!ramGetBuffer(SYSTEM_RAM(gpSystem), &pData, nAddress, NULL)) {
+                if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), &pData, nAddress, NULL)) {
                     return false;
                 }
                 switch (nId) {
@@ -931,14 +927,14 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                                     }
 
                                     if (bFound) {
-                                        if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pLight, nAddress, NULL)) {
+                                        if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pLight, nAddress, NULL)) {
                                             return false;
                                         }
                                         if (!frameSetLight(pFrame, iIndex, pLight)) {
                                             return false;
                                         }
                                     } else if (pRSP->nNumZSortLights < 7 && pRSP->nAmbientLightAddress != 0) {
-                                        if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pLight, nAddress, NULL)) {
+                                        if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pLight, nAddress, NULL)) {
                                             return false;
                                         }
                                         if (!frameSetLight(pFrame, pRSP->nNumZSortLights, pLight)) {
@@ -949,7 +945,7 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                                     }
 
                                     if (pRSP->nAmbientLightAddress != 0) {
-                                        if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pLight,
+                                        if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pLight,
                                                           pRSP->nAmbientLightAddress, NULL)) {
                                             return false;
                                         }
@@ -998,7 +994,7 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         void* pData;
                         s32 nAddress = SEGMENT_ADDRESS(pRSP, nCommandLo);
 
-                        if (!ramGetBuffer(SYSTEM_RAM(gpSystem), &pData, nAddress, NULL)) {
+                        if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), &pData, nAddress, NULL)) {
                             return false;
                         }
                         if (!frameSetViewport(pFrame, pData)) {
@@ -1011,7 +1007,7 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         s32 iLight = ((s32)(((nCommandHi >> 8) & 0xFF) * 8) - 24) / 24;
                         s32 nAddress = SEGMENT_ADDRESS(pRSP, nCommandLo);
 
-                        if (!ramGetBuffer(SYSTEM_RAM(gpSystem), &pData, nAddress, NULL)) {
+                        if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), &pData, nAddress, NULL)) {
                             return false;
                         }
                         if (iLight == -1) {
@@ -1110,7 +1106,7 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                 }
             } else if (pRSP->eTypeUCode == RUT_ZSORT) { // ZSORT: G_ZS_SENDSIGNAL
                 pRSP->nStatus |= nCommandLo | (nCommandHi & 0xFFFFFF);
-                xlObjectEvent(gpSystem, 0x1000, (void*)5);
+                xlObjectEvent(RSP_HOST(pRSP), 0x1000, (void*)5);
             } else { // F3DEX2: G_MTX
                 s32 nMode = nCommandHi & 0xFF;
                 s32 nAddress = SEGMENT_ADDRESS(pRSP, nCommandLo);
@@ -1220,8 +1216,6 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                 }
             }
             break;
-        case 0xD5:
-            break;
         case 0xD4:
             break;
         case 0xD3:
@@ -1230,12 +1224,6 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                     return false;
                 }
             }
-            break;
-        case 0xD2:
-            break;
-        case 0xD1:
-            break;
-        case 0xD0:
             break;
         case 0x01:
             if (pRSP->eTypeUCode == RUT_S2DEX2) { // S2DEX2: G_OBJ_RECTANGLE
@@ -1250,7 +1238,7 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                 s32 iVertex0 = ((nCommandHi & 0xFF) >> 1) - nCount;
                 s32 nAddress = SEGMENT_ADDRESS(pRSP, nCommandLo);
 
-                if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pBuffer, nAddress, NULL)) {
+                if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pBuffer, nAddress, NULL)) {
                     return false;
                 }
                 if (!frameLoadVertex(pFrame, pBuffer, iVertex0, nCount)) {
@@ -1324,8 +1312,8 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         }
 
                         iVertex += 3;
-                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         nCommandLo = GBI_COMMAND_LO(pnGBI);
+                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         if (((nCommandHi >> 24) & 0xFF) == 0x05) {
                             *ppnGBI = ++pnGBI;
                         } else {
@@ -1365,8 +1353,8 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         }
 
                         iVertex += 6;
-                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         nCommandLo = GBI_COMMAND_LO(pnGBI);
+                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         if (((nCommandHi >> 24) & 0xFF) == 0x06) {
                             *ppnGBI = ++pnGBI;
                         } else {
@@ -1406,8 +1394,8 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         }
 
                         iVertex += 6;
-                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         nCommandLo = GBI_COMMAND_LO(pnGBI);
+                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         if (((nCommandHi >> 24) & 0xFF) == 0x07) {
                             *ppnGBI = ++pnGBI;
                         } else {
@@ -1442,8 +1430,8 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                         }
 
                         iVertex += 3;
-                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         nCommandLo = GBI_COMMAND_LO(pnGBI);
+                        nCommandHi = GBI_COMMAND_HI(pnGBI);
                         if (((nCommandHi >> 24) & 0xFF) == 0x08) {
                             *ppnGBI = ++pnGBI;
                         } else {
@@ -1464,7 +1452,7 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                 uObjBg bg;
 
                 rspFillObjBgScale(pRSP, nAddress, &bg);
-                if (!(gpSystem->eTypeROM == 'NZSJ' || gpSystem->eTypeROM == 'NZSE' || gpSystem->eTypeROM == 'NZSP')) {
+                if (!(RSP_HOST(pRSP)->eTypeROM == 'NZSJ' || RSP_HOST(pRSP)->eTypeROM == 'NZSE' || RSP_HOST(pRSP)->eTypeROM == 'NZSP')) {
                     guS2DEmuSetScissor(0, 0, N64_FRAME_WIDTH << 2, N64_FRAME_HEIGHT << 2, 0);
                     if (!guS2DEmuBgRect1Cyc(pRSP, pFrame, &bg)) {
                         return false;
@@ -1505,7 +1493,7 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
             if (pRSP->eTypeUCode == RUT_S2DEX2) { // S2DEX2: G_BG_COPY
                 s32 nAddress = SEGMENT_ADDRESS(pRSP, nCommandLo);
 
-                if (!(gpSystem->eTypeROM == 'NZSJ' || gpSystem->eTypeROM == 'NZSE' || gpSystem->eTypeROM == 'NZSP')) {
+                if (!(RSP_HOST(pRSP)->eTypeROM == 'NZSJ' || RSP_HOST(pRSP)->eTypeROM == 'NZSE' || RSP_HOST(pRSP)->eTypeROM == 'NZSP')) {
                     if (!rspBgRectCopy(pRSP, pFrame, nAddress)) {
                         return false;
                     }
@@ -1551,8 +1539,8 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                 nDLAdrs = nCommandHi & 0xFFFF;
                 nFlag2D = nCommandLo;
 
-                nCommandHi = GBI_COMMAND_HI(pnGBI);
                 nCommandLo = GBI_COMMAND_LO(pnGBI);
+                nCommandHi = GBI_COMMAND_HI(pnGBI);
                 *ppnGBI = ++pnGBI;
 
                 bPush = (nCommandHi >> 16) & 0xFF;
@@ -1567,6 +1555,8 @@ static bool rspParseGBI_F3DEX2(Rsp* pRSP, u64** ppnGBI, bool* pbDone) {
                 return false;
             }
             break;
+        case 0xDD: // G_LOAD_UCODE
+            return false;
         default:
             return false;
     }

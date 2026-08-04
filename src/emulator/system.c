@@ -38,7 +38,39 @@
 #define SYSTEM_PTR (pSystem)
 #endif
 
+// clang-format off
+// MIPS code uploaded over the boot ROM stub; used by Diddy Kong Racing and Paper Mario in systemSetupGameALL.
+// Shared by every version, but each one emits it at a different point of .data, hence the macro.
+#define SYSTEM_UNKNOWN_CODE                                                                                            \
+    {                                                                                                                  \
+        0x3C1A8007, 0x275ACEC0, 0x03400008, 0x00000000, 0x3C010010, 0x012A4824, 0x01214823, 0x3C01A460, 0xAC290000,     \
+        0x3C08A460, 0x8D080010, 0x31080002, 0x5500FFFD, 0x3C08A460, 0x24081000, 0x010B4020, 0x010A4024, 0x3C01A460,     \
+        0xAC280004, 0x3C0A0010, 0x254A0003, 0x3C01A460, 0xAC2A000C, 0x00000000, 0x00000000, 0x00000000, 0x00000000,     \
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x3C1A8007, 0x275ACEC0, 0x03400008, 0x00000000,     \
+        0x8D6B0010, 0x316B0001, 0x1560FFF0, 0x00000000, 0x3C0BB000, 0x8D640008, 0x3C010010, 0x02C02825, 0x00812023,     \
+        0x3C016C07, 0x34218965, 0x00A10019, 0x27BDFFE0, 0xAFBF001C, 0xAFB00014, 0x3C1F0010, 0x00001825, 0x00004025,     \
+        0x00804825, 0x240D0020, 0x00001012, 0x24420001, 0x00403825, 0x00405025, 0x00405825, 0x00408025, 0x00403025,     \
+        0x00406025, 0x3C1A8007, 0x275ACEC0, 0x03400008, 0x00000000, 0x00602825, 0x254A0001, 0x3043001F, 0x01A37823,     \
+        0x01E2C006, 0x00627004, 0x01D82025, 0x00C2082B, 0x00A03825, 0x01625826, 0x10200004, 0x02048021, 0x00E2C826,     \
+        0x10000002, 0x03263026, 0x00C43026, 0x25080004, 0x00507826, 0x25290004, 0x151FFFE8, 0x01EC6021, 0x00EA7026,     \
+        0x01CB3821, 0x0206C026, 0x030C8021, 0x3C0BB000, 0x8D680010, 0x14E80006, 0x08018B0A, 0x00000000, 0xAFBAFFF0,     \
+        0x3C1A8006, 0x04110003, 0x00000000, 0x0411FFFF, 0x00000000, 0x3C09A408, 0x8D290000, 0x8FB00014, 0x8FBF001C,     \
+        0x11200006, 0x27BD0020, 0x240A0041, 0x3C01A404, 0xAC2A0010, 0x3C01A408, 0xAC200000, 0x3C0B00AA, 0x356BAAAE,     \
+        0x3C01A404, 0xAC2B0010, 0x3C01A430, 0x24080555, 0xAC28000C, 0x3C01A480, 0xAC200018, 0x3C01A450, 0xAC20000C,     \
+        0x3C01A430, 0x24090800, 0xAC290000, 0x24090002, 0x3C01A460, 0xAC290010, 0x3C08A000, 0x35080300, 0x240917D7,     \
+        0xAD090010, 0xAD140000, 0xAD130004, 0xAD15000C, 0x12600004, 0xAD170014, 0x3C09A600, 0x10000003, 0x25290000,     \
+        0x3C09B000, 0x25290000, 0xAD090008, 0x3C08A400, 0x25080000, 0x21091000, 0x240AFFFF, 0x25080004, 0x1509FFFE,     \
+        0xAD0AFFFC, 0x3C08A400, 0x25081000, 0x21091000, 0x25080004, 0x1509FFFE, 0xAD0AFFFC, 0x3C0AA400, 0x240B17D7,     \
+        0xAD4B1000, 0x3C0BB000, 0x254A1000, 0x8D690008, 0x3C010010, 0x01214823, 0x01200008, 0x00000000, 0xFFFFFFFF,     \
+        0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,     \
+        0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,     \
+        0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,                                                                            \
+    }
+// clang-format on
+
 #if IS_MM
+u32 lbl_8014E550[] = SYSTEM_UNKNOWN_CODE;
+
 _XL_OBJECTTYPE gClassSystem = {
     "SYSTEM (N64)",
     sizeof(System),
@@ -52,6 +84,7 @@ static bool comboTestName(Rom* pROM);
 #endif
 
 // clang-format off
+#if IS_MM
 static u32 contMap[][GCN_BTN_COUNT] = {
     // Controller Configuration No. 1
     {
@@ -148,6 +181,104 @@ static u32 contMap[][GCN_BTN_COUNT] = {
         N64_BTN_CRIGHT, // GCN_BTN_UNK20
     },
 };
+#else
+static u32 contMap[][GCN_BTN_COUNT] = {
+    // Controller Configuration No. 1
+    {
+        N64_BTN_A,      // GCN_BTN_A
+        N64_BTN_B,      // GCN_BTN_B
+        N64_BTN_UNSET,  // GCN_BTN_X
+        N64_BTN_UNSET,  // GCN_BTN_Y
+        N64_BTN_L,      // GCN_BTN_L
+        N64_BTN_R,      // GCN_BTN_R
+        N64_BTN_Z,      // GCN_BTN_Z
+        N64_BTN_START,  // GCN_BTN_START
+        0x08000000,     // GCN_BTN_UNK8
+        0x04000000,     // GCN_BTN_UNK9
+        0x02000000,     // GCN_BTN_UNK10
+        0x01000000,     // GCN_BTN_UNK11
+        N64_BTN_DUP,    // GCN_BTN_DPAD_UP
+        N64_BTN_DDOWN,  // GCN_BTN_DPAD_DOWN
+        N64_BTN_DLEFT,  // GCN_BTN_DPAD_LEFT
+        N64_BTN_DRIGHT, // GCN_BTN_DPAD_RIGHT
+        N64_BTN_CUP,    // GCN_BTN_CSTICK_UP
+        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_DOWN
+        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_LEFT
+        N64_BTN_CRIGHT, // GCN_BTN_CSTICK_RIGHT
+    },
+    // Controller Configuration No. 2
+    {
+        N64_BTN_A,      // GCN_BTN_A
+        N64_BTN_B,      // GCN_BTN_B
+        N64_BTN_UNSET,  // GCN_BTN_X
+        N64_BTN_UNSET,  // GCN_BTN_Y
+        N64_BTN_Z,      // GCN_BTN_L
+        N64_BTN_R,      // GCN_BTN_R
+        N64_BTN_Z,      // GCN_BTN_Z
+        N64_BTN_START,  // GCN_BTN_START
+        0x08000000,     // GCN_BTN_UNK8
+        0x04000000,     // GCN_BTN_UNK9
+        0x02000000,     // GCN_BTN_UNK10
+        0x01000000,     // GCN_BTN_UNK11
+        N64_BTN_DUP,    // GCN_BTN_DPAD_UP
+        N64_BTN_DDOWN,  // GCN_BTN_DPAD_DOWN
+        N64_BTN_DLEFT,  // GCN_BTN_DPAD_LEFT
+        N64_BTN_DRIGHT, // GCN_BTN_DPAD_RIGHT
+        N64_BTN_CUP,    // GCN_BTN_CSTICK_UP
+        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_DOWN
+        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_LEFT
+        N64_BTN_CRIGHT, // GCN_BTN_CSTICK_RIGHT
+    },
+    // Controller Configuration No. 3
+    {
+        N64_BTN_A,      // GCN_BTN_A
+        N64_BTN_B,      // GCN_BTN_B
+        N64_BTN_CRIGHT, // GCN_BTN_X
+        N64_BTN_CLEFT,  // GCN_BTN_Y
+        N64_BTN_Z,      // GCN_BTN_L
+        N64_BTN_R,      // GCN_BTN_R
+        N64_BTN_CDOWN,  // GCN_BTN_Z
+        N64_BTN_START,  // GCN_BTN_START
+        N64_BTN_UNSET,  // GCN_BTN_UNK8
+        N64_BTN_UNSET,  // GCN_BTN_UNK9
+        N64_BTN_UNSET,  // GCN_BTN_UNK10
+        N64_BTN_UNSET,  // GCN_BTN_UNK11
+        N64_BTN_UNSET,  // GCN_BTN_DPAD_UP
+        N64_BTN_L,      // GCN_BTN_DPAD_DOWN
+        N64_BTN_L,      // GCN_BTN_DPAD_LEFT
+        N64_BTN_L,      // GCN_BTN_DPAD_RIGHT
+        N64_BTN_L,      // GCN_BTN_CSTICK_UP
+        N64_BTN_CUP,    // GCN_BTN_CSTICK_DOWN
+        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_LEFT
+        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_RIGHT
+        N64_BTN_CRIGHT, // GCN_BTN_UNK20
+    },
+    // Controller Configuration No. 4
+    {
+        N64_BTN_A,      // GCN_BTN_A
+        N64_BTN_B,      // GCN_BTN_B
+        N64_BTN_CRIGHT, // GCN_BTN_X
+        N64_BTN_CLEFT,  // GCN_BTN_Y
+        N64_BTN_Z,      // GCN_BTN_L
+        N64_BTN_R,      // GCN_BTN_R
+        N64_BTN_CDOWN,  // GCN_BTN_Z
+        N64_BTN_START,  // GCN_BTN_START
+        N64_BTN_UNSET,  // GCN_BTN_UNK8
+        N64_BTN_UNSET,  // GCN_BTN_UNK9
+        N64_BTN_UNSET,  // GCN_BTN_UNK10
+        N64_BTN_UNSET,  // GCN_BTN_UNK11
+        N64_BTN_UNSET,  // GCN_BTN_DPAD_UP
+        N64_BTN_L,      // GCN_BTN_DPAD_DOWN
+        N64_BTN_L,      // GCN_BTN_DPAD_LEFT
+        N64_BTN_L,      // GCN_BTN_DPAD_RIGHT
+        N64_BTN_L,      // GCN_BTN_CSTICK_UP
+        N64_BTN_CUP,    // GCN_BTN_CSTICK_DOWN
+        N64_BTN_CDOWN,  // GCN_BTN_CSTICK_LEFT
+        N64_BTN_CLEFT,  // GCN_BTN_CSTICK_RIGHT
+        N64_BTN_CRIGHT, // GCN_BTN_UNK20
+    },
+};
+#endif
 // clang-format on
 
 #if IS_OOT || IS_MT
@@ -281,30 +412,7 @@ static SystemDevice gaSystemDevice[] = {
 };
 
 // used by Diddy Kong Racing and Paper Mario in systemSetupGameALL
-u32 lbl_8016FEA0[] = {
-    0x3C1A8007, 0x275ACEC0, 0x03400008, 0x00000000, 0x3C010010, 0x012A4824, 0x01214823, 0x3C01A460, 0xAC290000,
-    0x3C08A460, 0x8D080010, 0x31080002, 0x5500FFFD, 0x3C08A460, 0x24081000, 0x010B4020, 0x010A4024, 0x3C01A460,
-    0xAC280004, 0x3C0A0010, 0x254A0003, 0x3C01A460, 0xAC2A000C, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
-    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x3C1A8007, 0x275ACEC0, 0x03400008, 0x00000000,
-    0x8D6B0010, 0x316B0001, 0x1560FFF0, 0x00000000, 0x3C0BB000, 0x8D640008, 0x3C010010, 0x02C02825, 0x00812023,
-    0x3C016C07, 0x34218965, 0x00A10019, 0x27BDFFE0, 0xAFBF001C, 0xAFB00014, 0x3C1F0010, 0x00001825, 0x00004025,
-    0x00804825, 0x240D0020, 0x00001012, 0x24420001, 0x00403825, 0x00405025, 0x00405825, 0x00408025, 0x00403025,
-    0x00406025, 0x3C1A8007, 0x275ACEC0, 0x03400008, 0x00000000, 0x00602825, 0x254A0001, 0x3043001F, 0x01A37823,
-    0x01E2C006, 0x00627004, 0x01D82025, 0x00C2082B, 0x00A03825, 0x01625826, 0x10200004, 0x02048021, 0x00E2C826,
-    0x10000002, 0x03263026, 0x00C43026, 0x25080004, 0x00507826, 0x25290004, 0x151FFFE8, 0x01EC6021, 0x00EA7026,
-    0x01CB3821, 0x0206C026, 0x030C8021, 0x3C0BB000, 0x8D680010, 0x14E80006, 0x08018B0A, 0x00000000, 0xAFBAFFF0,
-    0x3C1A8006, 0x04110003, 0x00000000, 0x0411FFFF, 0x00000000, 0x3C09A408, 0x8D290000, 0x8FB00014, 0x8FBF001C,
-    0x11200006, 0x27BD0020, 0x240A0041, 0x3C01A404, 0xAC2A0010, 0x3C01A408, 0xAC200000, 0x3C0B00AA, 0x356BAAAE,
-    0x3C01A404, 0xAC2B0010, 0x3C01A430, 0x24080555, 0xAC28000C, 0x3C01A480, 0xAC200018, 0x3C01A450, 0xAC20000C,
-    0x3C01A430, 0x24090800, 0xAC290000, 0x24090002, 0x3C01A460, 0xAC290010, 0x3C08A000, 0x35080300, 0x240917D7,
-    0xAD090010, 0xAD140000, 0xAD130004, 0xAD15000C, 0x12600004, 0xAD170014, 0x3C09A600, 0x10000003, 0x25290000,
-    0x3C09B000, 0x25290000, 0xAD090008, 0x3C08A400, 0x25080000, 0x21091000, 0x240AFFFF, 0x25080004, 0x1509FFFE,
-    0xAD0AFFFC, 0x3C08A400, 0x25081000, 0x21091000, 0x25080004, 0x1509FFFE, 0xAD0AFFFC, 0x3C0AA400, 0x240B17D7,
-    0xAD4B1000, 0x3C0BB000, 0x254A1000, 0x8D690008, 0x3C010010, 0x01214823, 0x01200008, 0x00000000, 0xFFFFFFFF,
-    0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
-    0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
-    0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
-};
+u32 lbl_8016FEA0[] = SYSTEM_UNKNOWN_CODE;
 #endif
 
 #if IS_OOT || IS_MT
@@ -1424,7 +1532,6 @@ extern f32 lbl_801FF814;
 static const f32 lbl_80201504 = 245.0f;
 static const f32 lbl_80201508 = 1.1f;
 extern s32 lbl_802006B0;
-extern u8 lbl_8014E550[0x300];
 
 static bool systemSetupGameALL(System* pSystem) {
     s32 nSize;
@@ -1433,7 +1540,6 @@ static bool systemSetupGameALL(System* pSystem) {
 
     s32 nSizeSound;
     s32 iController;
-    s32 i;
     u64 nTimeRetrace;
     char acCode[5];
     Cpu* pCPU;
@@ -1445,7 +1551,6 @@ static bool systemSetupGameALL(System* pSystem) {
     s32 var_r24;
     u32 var_r23;
     u32 nClockSpeed;
-    s32 nControllerConfig;
 
     pSystem->storageDevice = SOT_SRAM;
     pCPU = SYSTEM_CPU(pSystem);
@@ -1520,11 +1625,10 @@ static bool systemSetupGameALL(System* pSystem) {
 
         pSystem->storageDevice = SOT_ROM;
 
-        pRSP->nMode = 0;
+        pRSP->unk0000 = 0;
         pRSP->unk_59D4 = 1;
 
-        nClockSpeed = OS_TIME_SPEED;
-        defaultConfiguration = nClockSpeed / 250 & ~3;
+        defaultConfiguration = (nClockSpeed = OS_TIME_SPEED) / 250 & ~3;
         nSizeSound = (nClockSpeed / 125 & ~7) - nClockSpeed / 1000;
 
         pRSP->unk_59DC = defaultConfiguration;
@@ -1592,13 +1696,13 @@ static bool systemSetupGameALL(System* pSystem) {
             if (!cpuSetCodeHack(pCPU, 0x800BEA1C, 0x860B000A, -1)) {
                 return false;
             }
-            if (!cpuSetCodeHack(pCPU, 0x800BFB14, 0x0C025414, 0)) {
+            if (!cpuSetCodeHack(pCPU, 0x8016FB14, 0x0C025414, 0)) {
                 return false;
             }
-            if (!cpuSetCodeHack(pCPU, 0x800BFB2C, 0x0C02335C, 0)) {
+            if (!cpuSetCodeHack(pCPU, 0x8016FB2C, 0x0C02335C, 0)) {
                 return false;
             }
-            if (!cpuSetCodeHack(pCPU, 0x800BFB34, 0x8FB9004C, 0x24190000)) {
+            if (!cpuSetCodeHack(pCPU, 0x8016FB34, 0x8FB9004C, 0x24190000)) {
                 return false;
             }
         }
@@ -1619,14 +1723,14 @@ static bool systemSetupGameALL(System* pSystem) {
         if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pBuffer, 0, 0)) {
             return false;
         }
-        if (!xlHeapCopy(pBuffer, &lbl_8014E550, 0x300)) {
+        if (!xlHeapCopy(pBuffer, lbl_8014E550, 0x300)) {
             return false;
         }
-        if (!fn_80054D6C(SYSTEM_RSP(gpSystem), &pBuffer, 0, 4)) {
+        if (!rspGetIMEM(SYSTEM_RSP(gpSystem), (void**)&pBuffer, 0, 4)) {
             return false;
         }
         pBuffer[0] = 0x17D7;
-        if (!fn_80054D54(SYSTEM_RSP(gpSystem), &pBuffer, 0, 4)) {
+        if (!rspGetDMEM(SYSTEM_RSP(gpSystem), (void**)&pBuffer, 0, 4)) {
             return false;
         }
         pBuffer[0] = -1;
@@ -1636,11 +1740,11 @@ static bool systemSetupGameALL(System* pSystem) {
         }
         pBuffer[0x59] = 0x01EC6021;
         pBuffer[0xAE] = 0x8941680C;
-        if (fn_80054D6C(SYSTEM_RSP(gpSystem), &pBuffer, 0, 4) == 0) {
+        if (rspGetIMEM(SYSTEM_RSP(gpSystem), (void**)&pBuffer, 0, 4) == 0) {
             return false;
         }
         pBuffer[0] = 0x17D8;
-        if (fn_80054D54(SYSTEM_RSP(gpSystem), &pBuffer, 0, 4) == 0) {
+        if (rspGetDMEM(SYSTEM_RSP(gpSystem), (void**)&pBuffer, 0, 4) == 0) {
             return false;
         }
         pBuffer[0] = -1;
@@ -1654,14 +1758,8 @@ static bool systemSetupGameALL(System* pSystem) {
     }
 
     pCPU->nTimeRetrace = nTimeRetrace;
-    nControllerConfig = gSystemRomConfigurationList[0].currentControllerConfig;
-    gSystemRomConfigurationList[0].rumbleConfiguration = 0;
-    for (iController = 0; iController < 4; iController++) {
-        ((bool (*)(u32*, u32*))simulatorCopyControllerMap)(
-            (u32*)gSystemRomConfigurationList[0].controllerConfiguration[iController],
-            contMap[(nControllerConfig >> (iController * 8)) & 0x7F]);
-        gSystemRomConfigurationList[0].rumbleConfiguration |= (1 << (iController * 8)) & (nControllerConfig >> 7);
-    }
+    systemSetControllerConfiguration(&gSystemRomConfigurationList[0],
+                                     gSystemRomConfigurationList[0].currentControllerConfig, 0, false, true);
 
     for (iController = 0; iController < 4; iController++) {
         fn_80007118((u32*)gSystemRomConfigurationList[0].controllerConfiguration[iController], iController);
@@ -2000,14 +2098,17 @@ static bool fn_8000A504(void) {
     u32 nAddressOffset[32];
     u32 nAddressEnd;
     u32* pnAddress;
-    u32 nAddress;
     s32 nCount;
     s32 i;
+    s32 temp_r5;
+    u32 nAddress;
 
     nAddress = gpSystem->cpuBlock.nAddress0;
-    nAddressEnd = (nAddress + gpSystem->cpuBlock.nSize) ;
+    nAddressEnd = (nAddress + gpSystem->cpuBlock.nSize);
+    temp_r5 = nAddressEnd - 1;
+    nAddressEnd = temp_r5 - 1;
 
-    if (!frameInvalidateCache(SYSTEM_FRAME(gpSystem), nAddress, nAddressEnd-- - 1)) {
+    if (!frameInvalidateCache(SYSTEM_FRAME(gpSystem), nAddress, temp_r5)) {
         return false;
     }
 

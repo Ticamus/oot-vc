@@ -546,11 +546,11 @@ static bool rspParseJPEG_Encode(Rsp* pRSP, RspTask* pTask) {
     preDc[2] = 0;
 
     rspCreateJPEGArrays(pRSP);
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&system_imb, pTask->nOffsetMBI, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&system_imb, pTask->nOffsetMBI, NULL)) {
         return false;
     }
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&system_cfb, pTask->nOffsetBuffer, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&system_cfb, pTask->nOffsetBuffer, NULL)) {
         return false;
     }
 
@@ -593,7 +593,7 @@ static bool rspParseJPEG_Decode(Rsp* pRSP, RspTask* pTask) {
     int scale;
 
     rspCreateJPEGArrays(pRSP);
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&system_imb, pTask->nOffsetMBI, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&system_imb, pTask->nOffsetMBI, NULL)) {
         return false;
     }
 
@@ -688,13 +688,13 @@ static bool rspCreateJPEGArraysZ(Rsp* pRSP, s32 qYAddress, s32 qCbAddress, s32 q
     pRSP->Coeff[62] = 0xC92;
     pRSP->Coeff[63] = -0x46A;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pRSP->QYTable, (u32)qYAddress, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pRSP->QYTable, (u32)qYAddress, NULL)) {
         return false;
     }
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pRSP->QCbTable, (u32)qCbAddress, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pRSP->QCbTable, (u32)qCbAddress, NULL)) {
         return false;
     }
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&pRSP->QCrTable, (u32)qCrAddress, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&pRSP->QCrTable, (u32)qCrAddress, NULL)) {
         return false;
     }
 
@@ -1108,11 +1108,11 @@ static bool rspParseJPEG_EncodeZ(Rsp* pRSP, RspTask* pTask) {
     u32* infoStruct;
     s32 size;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&infoStruct, pTask->nOffsetMBI, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&infoStruct, pTask->nOffsetMBI, NULL)) {
         return false;
     }
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&system_imb, infoStruct[0], NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&system_imb, infoStruct[0], NULL)) {
         return false;
     }
 
@@ -1139,11 +1139,11 @@ static bool rspParseJPEG_DecodeZ(Rsp* pRSP, RspTask* pTask) {
     u32* infoStruct;
     s32 size;
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&infoStruct, pTask->nOffsetMBI, NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&infoStruct, pTask->nOffsetMBI, NULL)) {
         return false;
     }
 
-    if (!ramGetBuffer(SYSTEM_RAM(gpSystem), (void**)&system_imb, infoStruct[0], NULL)) {
+    if (!ramGetBuffer(SYSTEM_RAM(RSP_HOST(pRSP)), (void**)&system_imb, infoStruct[0], NULL)) {
         return false;
     }
 
