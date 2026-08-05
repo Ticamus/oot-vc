@@ -338,6 +338,11 @@ config.libs = [
             # added to it. Byte-identical to oot-j's, unlike the rest of that TU.
             Object(LinkedFor("mm-j"), "emulator/frame_hack_timg.c"),
             Object(NotLinked, "emulator/frame_2.c"),
+            # mm-j: frameSetBuffer carved out so OoT's equipment-subscreen Link portrait can be
+            # resolved there. Its FBT_COLOR_DRAW branch is empty in retail, and G_SETCIMG is the
+            # moment the hack needs.
+            Object(LinkedFor("mm-j"), "emulator/frame_set_buffer.c"),
+            Object(NotLinked, "emulator/frame_2b.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/library.c"),
             # mm-j: osViSwapBuffer_Entry carved out to instrument the HLE frame-complete signal.
             Object(LinkedFor("mm-j"), "emulator/library_swap.c"),

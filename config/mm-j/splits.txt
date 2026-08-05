@@ -39,7 +39,13 @@ emulator/frame_hack_timg.c:
 	.text       start:0x80011CE0 end:0x80011E60
 
 emulator/frame_2.c:
-	.text       start:0x80011E60 end:0x80015340
+	.text       start:0x80011E60 end:0x80015018
+
+emulator/frame_set_buffer.c:
+	.text       start:0x80015018 end:0x80015050
+
+emulator/frame_2b.c:
+	.text       start:0x80015050 end:0x80015340
 
 emulator/system.c:
 	.text       start:0x80015340 end:0x80017568
