@@ -133,7 +133,18 @@ typedef struct FrameBuffer {
     /* 0x08 */ s32 nFormat;
     /* 0x0C */ void* pData;
     /* 0x10 */ s32 nAddress;
-} FrameBuffer; // size = 0x14
+#if IS_MM
+    //! MM's is 0x2C, not 0x14. Derived twice over: frameSetBuffer reads
+    //! aBuffer[FBT_DEPTH].nAddress at 0x130(pFrame) so aBuffer starts at 0x120, and it writes
+    //! nOffsetDepth0 at 0x1D0(pFrame) which directly follows the four entries -- (0x1D0 - 0x120)
+    //! / 4 = 0x2C. rdpParseGBI agrees: it takes aBuffer[FBT_IMAGE] as pFrame+0x14C and
+    //! aBuffer[FBT_COLOR_DRAW] as pFrame+0x1A4, two entries apart. The five fields above keep
+    //! their offsets in MM (rdpParseGBI's G_SETCIMG case stores nSize/nWidth/nFormat at +0x00,
+    //! +0x04, +0x08 of pFrame+0x1A4 and hands &pData at +0x0C to ramGetBuffer); what the extra
+    //! 0x18 holds is not known yet.
+    /* 0x14 */ u8 unk_14[0x2C - 0x14];
+#endif
+} FrameBuffer; // size = 0x14 (0x2C for MM)
 
 typedef struct Vec3f {
     /* 0x0 */ f32 x;
@@ -309,24 +320,39 @@ typedef struct Frame {
     /* 0x0008C */ s32 nLastFrameZSets;
     /* 0x00090 */ bool bPauseBGDrawn;
     /* 0x00094 */ u64* pnGBI;
-    /* 0x00098 */ u32 nFlag;
-    /* 0x0009C */ u8 unk_9C[0x000B8 - 0x0009C];
-    /* 0x000B8 */ f32 unk_A4;
-    /* 0x000BC */ f32 unk_A8;
+    //! Everything from here to aDraw was wrong: nFlag sat at 0x98 and aBuffer at 0x138 with
+    //! 0x14-byte entries, which put every one of these fields somewhere else entirely. Corrected
+    //! against the retail asm -- frameDrawReset reads nFlag at 0xBC(pFrame) and writes aDraw at
+    //! 0x1E4, frameSetBuffer reads aBuffer[FBT_DEPTH].nAddress at 0x130 and writes
+    //! nOffsetDepth0/1 at 0x1D0/0x1D4, frameSetDepth uses 0x1DC/0x1E0, and the oot-j <-> mm-j
+    //! offset map built from the sixteen frame.c functions that are structurally identical in
+    //! both builds fixes nMode/aMode (oot-j 0xB0/0xB4 -> 0xCC/0xD0) and nWidthLine (0x144 ->
+    //! 0x1D8). aDraw and nCountLight were already right, so nothing at or after 0x1F4 moves and
+    //! sizeof stays 0x559B8, which is what gClassFrame declares.
+    /* 0x00098 */ u8 unk_98[0x000B4 - 0x00098];
+    //! MM has no counterpart to these two: nFlag at 0xBC and nCountFrames at 0xC8 leave exactly
+    //! two words before nMode, and both are the f32 scales -- mm-j has ten float loads at
+    //! 0xC0/0xC4, the same count oot-j has at rScaleX/rScaleY, and none at all matching its four
+    //! at unk_A4/unk_A8. They are declared here only so the (NotLinked everywhere) frame.c still
+    //! compiles for mm-j; their offsets are meaningless for this build.
+    /* ------- */ f32 unk_A4;
+    /* ------- */ f32 unk_A8;
+    /* 0x000BC */ u32 nFlag;
     /* 0x000C0 */ f32 rScaleX;
     /* 0x000C4 */ f32 rScaleY;
+    //! nCountFrames: oot-j 0xAC, and frameEnd increments 0xC8(pFrame) in mm-j with the same
+    //! load/store pair.
     /* 0x000C8 */ u32 nCountFrames;
     /* 0x000CC */ volatile u32 nMode;
     /* 0x000D0 */ u32 aMode[FMT_COUNT];
     /* 0x000F8 */ Viewport viewport;
-    /* 0x00108 */ u8 unk_108[0x00138 - 0x00108];
-    /* 0x00138 */ FrameBuffer aBuffer[FBT_COUNT];
-    /* 0x00188 */ u32 nOffsetDepth0;
-    /* 0x0018C */ u32 nOffsetDepth1;
-    /* 0x00190 */ s32 nWidthLine;
-    /* 0x00194 */ f32 rDepth;
-    /* 0x00198 */ f32 rDelta;
-    /* 0x0019C */ u8 unk_19C[0x001E4 - 0x0019C];
+    /* 0x00108 */ u8 unk_108[0x00120 - 0x00108];
+    /* 0x00120 */ FrameBuffer aBuffer[FBT_COUNT];
+    /* 0x001D0 */ u32 nOffsetDepth0;
+    /* 0x001D4 */ u32 nOffsetDepth1;
+    /* 0x001D8 */ s32 nWidthLine;
+    /* 0x001DC */ f32 rDepth;
+    /* 0x001E0 */ f32 rDelta;
     /* 0x001E4 */ FrameDrawFunc aDraw[4];
     /* 0x001F4 */ s32 nCountLight;
     /* 0x001F8 */ Light aLight[8];

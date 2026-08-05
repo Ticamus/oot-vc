@@ -331,7 +331,17 @@ config.libs = [
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/_frameGCNcc.c"),
             Object(NotLinked, "emulator/_buildtev.c"),
             Object(NotLinked, "emulator/frame.c"),
+            # mm-j: frameBeginOK carved out to see when rspUpdate refuses a task setup.
+            Object(LinkedFor("mm-j"), "emulator/frame_begin_ok.c"),
+            Object(NotLinked, "emulator/frame_1b.c"),
+            # mm-j: frameHackTIMG_Zelda carved out of frame.c so OoT's pause-menu capture can be
+            # added to it. Byte-identical to oot-j's, unlike the rest of that TU.
+            Object(LinkedFor("mm-j"), "emulator/frame_hack_timg.c"),
+            Object(NotLinked, "emulator/frame_2.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/library.c"),
+            # mm-j: osViSwapBuffer_Entry carved out to instrument the HLE frame-complete signal.
+            Object(LinkedFor("mm-j"), "emulator/library_swap.c"),
+            Object(NotLinked, "emulator/library_2.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/codeRVL.c"),
             Object(NotLinked, "emulator/code_800821FC.c"),
             Object(LinkedFor("mm-j"), "emulator/code_80083508.c"),
@@ -349,6 +359,9 @@ config.libs = [
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/rsp.c"),
             Object(LinkedFor("mm-j"), "emulator/rspGet32.c"),
             Object(NotLinked, "emulator/rsp_2.c"),
+            # mm-j: rspUpdate carved out to instrument the RSP task/frame pairing.
+            Object(LinkedFor("mm-j"), "emulator/rsp_update.c"),
+            Object(NotLinked, "emulator/rsp_3.c"),
             Object(NotLinked, "emulator/rdp.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/xlCoreRVL.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mt-u"), "emulator/xlPostRVL.c"),

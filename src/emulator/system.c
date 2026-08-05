@@ -79,8 +79,9 @@ _XL_OBJECTTYPE gClassSystem = {
 }; // size = 0x10
 
 //! Not in the original game. Defined next to the rest of the OoTMM combo support, further
-//! down; systemSetupGameALL() needs it well before that.
+//! down; systemReset() needs it well before that.
 static bool comboTestName(Rom* pROM);
+
 #endif
 
 // clang-format off
@@ -1584,12 +1585,12 @@ static bool systemSetupGameALL(System* pSystem) {
     ((u32*)pBuffer2)[6] = nSize;
     systemGetInitialConfiguration(pSystem, pROM, 0);
 
-    //! Not in the original game. Recognise the OoTMM combined ROM by its internal name at
-    //! header offset 0x20; the game code at 0x3B is MM US's (NZSE), so it is the only thing
-    //! that tells the combo apart from vanilla MM. That code is also why nothing else here
-    //! needs changing: the combo saves through MM's FlashRAM for both halves, so the
-    //! storage device and controller map this function has just chosen are right either way.
-    gIsOotmmCombo = comboTestName(pROM);
+    //! Not in the original game. gIsOotmmCombo was already decided in systemReset(), which
+    //! runs comboTestName() before it publishes eTypeROM so that everything keyed on the game
+    //! code -- including the call to systemGetInitialConfiguration() just above -- sees NZSE.
+    //! Nothing else here needs changing: the combo saves through MM's FlashRAM for both
+    //! halves, so the storage device and controller map that call has chosen are right either
+    //! way. The combo always boots into OoT, whatever the code says.
     SYSTEM_CPU(pSystem)->isMM = false;
 
     if (gIsOotmmCombo) {
@@ -2479,6 +2480,10 @@ bool comboEmulatorSwitchFix(Cpu* pCPU) {
     // Rewriting it would change nothing and would desync systemGetInitialConfiguration's
     // view of the loaded image.
 
+    //! Not in the original game. Point mm-j's per-title behaviour selector at the half about to
+    //! run -- see COMBO_GAME_MODE_OOT.
+    gpSystem->storageDevice = (pCPU->isMM || !COMBO_MODE_FLIP) ? COMBO_GAME_MODE_MM : COMBO_GAME_MODE_OOT;
+
     frameTest(SYSTEM_FRAME(gpSystem));
 
     // Architectural state a cold entrypoint expects, as cpuReset() leaves it -- except for
@@ -2576,6 +2581,7 @@ bool comboEmulatorSwitchFix(Cpu* pCPU) {
     OSReport("combo: switch done (isMM=%d): CPU reset, JIT flushed, HLE library re-scan armed\n", pCPU->isMM);
     return true;
 }
+
 #endif
 
 bool systemReset(System* pSystem) {
@@ -2599,6 +2605,23 @@ bool systemReset(System* pSystem) {
         s32 nTypeROM;
 
         romGetCode(SYSTEM_ROM(pSystem), (char*)&nTypeROM);
+
+        //! Not in the original game. Recognise the OoTMM combined ROM by its internal name at
+        //! header offset 0x20 and report MM US regardless of the game code its builder wrote at
+        //! 0x3B (NEDE by default). Every per-game decision in this build is keyed on that code
+        //! being one of NZSJ/NZSE/NZSP -- the 8 MB Expansion Pak in systemSetupGameRAM(), the
+        //! storage device and controller map in systemGetInitialConfiguration(), and the whole
+        //! MM block in systemSetupGameALL() (audio microcode 0x17D9, RSP timings, code hacks,
+        //! nCompileFlag) -- so an unrecognised code leaves the emulator set up for a 4 MB
+        //! cartridge with no save device and neither half of the combo boots. NZSE is also the
+        //! code storeRVL.c builds the save file name from, so it has to stay NZSE across
+        //! rebuilds of the image for saves to survive.
+        gIsOotmmCombo = comboTestName(SYSTEM_ROM(pSystem));
+
+        if (gIsOotmmCombo) {
+            nTypeROM = NZSE;
+        }
+
         pSystem->eTypeROM = nTypeROM;
 
         if (!systemSetupGameRAM(pSystem)) {
@@ -2654,6 +2677,17 @@ bool systemReset(System* pSystem) {
                 }
             }
         }
+
+#if IS_MM
+        //! Not in the original game. See COMBO_GAME_MODE_OOT. After the loop, never before it:
+        //! frameEvent's case 0x1003 guards five of its xlHeapTake() calls on the mode being MM's 5,
+        //! and those are the Frame temp/copy/camera buffers. The combo always boots into OoT
+        //! whatever its header says; comboEmulatorSwitchFix() flips it on every handover.
+        if (COMBO_MODE_FLIP && gIsOotmmCombo) {
+            pSystem->storageDevice = COMBO_GAME_MODE_OOT;
+        }
+#endif
+
     }
 
     return true;

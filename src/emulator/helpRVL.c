@@ -1003,7 +1003,7 @@ s32 helpMenuUpdate(HelpMenu* pHelpMenu) {
             GXSetNumTexGens(0);
             GXSetNumTevStages(1);
             GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-            GXSetTevOp(GX_TEVSTAGE0, GX_BLEND);
+            GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
             GXSetBlendMode(GX_BM_NONE, GX_BL_ZERO, GX_BL_ZERO, GX_LO_CLEAR);
             GXSetZMode(GX_ENABLE, GX_LEQUAL, GX_ENABLE);
             GXSetCurrentMtx(3);

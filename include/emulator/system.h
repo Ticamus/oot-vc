@@ -389,6 +389,33 @@ bool systemEvent(System* pSystem, s32 nEvent, void* pArgument);
 //! vanilla Majora's Mask.
 extern bool gIsOotmmCombo;
 
+//! Not in the original game. mm-j picks per-game behaviour by comparing System+0x18 -- the field
+//! this decomp calls storageDevice -- against a small integer per title rather than testing
+//! eTypeROM the way the oot-* builds do. MM is 5. About twenty-five sites read it, across frame.s,
+//! rdp.s, rsp.s, eeprom.s and cpuGetPPC.
+//!
+//! The combo needs 4 for exactly one of them: the S2DEX G_BG_1CYC / G_BG_COPY dispatch in
+//! rspParseGBI_F3DEX2, which is what routes OoT's pre-rendered rooms, the Temple of Time exterior
+//! and the pause-menu background to the generic guS2DEmuBgRect1Cyc / rspBgRectCopy instead of MM's
+//! blur path. It cannot be scoped to that one test: the G_BG_COPY case reads the field with no
+//! call of any kind before it, so there is no hook to open a window on -- verified in
+//! rsp_1b.s. So it is announced for the whole OoT half, after systemReset's
+//! xlObjectEvent(..., 0x1003) loop so frameEvent still allocates the Frame buffers at MM's value.
+//! DIAGNOSTIC SWITCH, not a feature. 0 leaves the selector at MM's value for both halves, exactly
+//! as retail mm-j does. That costs OoT's pre-rendered rooms and the Temple of Time exterior -- and
+//! very likely the pause background with them -- and it exists to finish partitioning the rare
+//! "frameEnd: INTERNAL ERROR: Called when 'gbFrameBegin' is TRUE!" crash. With the capture already
+//! ruled out by a build that disabled it and still crashed, this flip is the only change left that
+//! was present in every round where the crash was seen, and absent in the one round where it was
+//! not. If this build survives a hundred pauses, the flip is the cause and the fix is to narrow
+//! what it changes; if it still crashes, nothing of ours is responsible and the next place to look
+//! is the RSP task/frame pairing itself (rspUpdate's `(nMode & 4) && (nMode & 8)` gate).
+#define COMBO_MODE_FLIP 1
+
+#define COMBO_GAME_MODE_OOT 4 // SOT_RAM
+#define COMBO_GAME_MODE_MM 5 // SOT_ROM
+
+
 //! Not in the original game. True from the moment the combo's switch stub takes over
 //! (comboGameSwitch2's jump through KSEG1) until comboEmulatorSwitchFix() has run. The stub
 //! runs with the RCP halted and the VI disabled, so emulator paths that normally wait for a

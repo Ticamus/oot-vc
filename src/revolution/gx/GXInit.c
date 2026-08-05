@@ -457,7 +457,7 @@ void __GXInitGX(void) {
     GXSetTevOrder(GX_TEVSTAGE15, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
 
     GXSetNumTevStages(1);
-    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    GXSetTevOp(GX_TEVSTAGE0, GX_REPLACE);
 
     GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_AND, GX_ALWAYS, 0);
 

@@ -27,7 +27,19 @@ emulator/codeRVL.c:
 	.sbss       start:0x80200640 end:0x80200648
 
 emulator/frame.c:
-	.text       start:0x800078A8 end:0x80015340
+	.text       start:0x800078A8 end:0x8000F620
+
+emulator/frame_begin_ok.c:
+	.text       start:0x8000F620 end:0x8000F664
+
+emulator/frame_1b.c:
+	.text       start:0x8000F664 end:0x80011CE0
+
+emulator/frame_hack_timg.c:
+	.text       start:0x80011CE0 end:0x80011E60
+
+emulator/frame_2.c:
+	.text       start:0x80011E60 end:0x80015340
 
 emulator/system.c:
 	.text       start:0x80015340 end:0x80017568
@@ -97,8 +109,14 @@ emulator/rspGet32.c:
 	.data       start:0x80151D94 end:0x80151E08
 
 emulator/rsp_2.c:
-	.text       start:0x800714BC end:0x80071A74
+	.text       start:0x800714BC end:0x80071630
 	.data       start:0x80151E08 end:0x80151E58
+
+emulator/rsp_update.c:
+	.text       start:0x80071630 end:0x8007182C
+
+emulator/rsp_3.c:
+	.text       start:0x8007182C end:0x80071A74
 
 emulator/mi.c:
 	.text       start:0x80071A74 end:0x80071FA8
@@ -133,7 +151,13 @@ emulator/si.c:
 	.text       start:0x8007474C end:0x80074A20
 
 emulator/library.c:
-	.text       start:0x80074A20 end:0x80079604
+	.text       start:0x80074A20 end:0x80076D90
+
+emulator/library_swap.c:
+	.text       start:0x80076D90 end:0x80076DF8
+
+emulator/library_2.c:
+	.text       start:0x80076DF8 end:0x80079604
 
 emulator/pi.c:
 	.text       start:0x80079604 end:0x80079BB4

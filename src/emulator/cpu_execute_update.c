@@ -1,5 +1,7 @@
 #include "emulator/cpu.h"
+#include "emulator/ram.h"
 #include "emulator/rom.h"
+#include "emulator/rsp.h"
 #include "emulator/system.h"
 #include "emulator/vc64_RVL.h"
 #include "emulator/vi.h"
@@ -36,6 +38,47 @@ extern void fn_80085C84(void* pHelp);
 extern s32 gComboTraceLeft;
 static s32 gComboTracePC = 0;
 static s32 gComboTraceHits = 0;
+
+//! REMOVED, along with the guest heartbeat, the guest-code dump and the __osActiveQueue thread
+//! walker. They did their job -- they are what established that every OoT thread parks in osRecvMesg
+//! while only libultra's VI manager and the idle thread run, and the frames-closed counter is what
+//! finally separated a frozen guest from a healthy instant. Keeping them costs a dozen format strings
+//! and several globals in a TU whose split claims only .text, and that footprint is the one thing
+//! that grew between a build that boots cleanly and one the console reports as corrupted memory.
+//! Reinstate from git history if the guest side needs watching again.
+
+//! Not in the original game. Half of the cure for the OoT pause freeze; the other half is the orphan
+//! recovery in rsp_update.c. Full write-up in docs/ootmm_pause_freeze.md -- read that before touching
+//! either, because five earlier attempts at this fault were wrong in instructive ways.
+//!
+//! In short: retail rspParseGBI_F3DEX2 copies display-list data into `pDMEM + ((word >> 3) & 0xFF8)`
+//! with a display-list-supplied length and no bound (0x8006F318 and five siblings), and 0xFC0 is where
+//! libultra keeps the OSTask descriptor. OoT's pause menu drives that path; MM's own lists never do.
+//! rspPut32 then reads OSTask.type from there, finds garbage, and bails through .L_80070F80 with the
+//! halt bit already cleared and nothing dispatched, so the guest waits on a task nobody owns.
+//!
+//! Only `type` is actually lost to the emulator -- rspParseGBI_Setup reads just +0x30 and rspFindUCode
+//! +0x10..+0x1C, all of which survive -- but the whole sixty-four bytes are restored anyway, because the
+//! correct source is right there: the guest's own OSTask in RDRAM, which the parser never touches.
+//!
+//! This function is the right home for it. It runs inside the guest on every interpreted opcode, MMIO
+//! access and block boundary, thousands of times a frame, so the descriptor is normally back before the
+//! guest's next SP_STATUS write reaches rspPut32. Normally, not always: that read happens inside the
+//! guest's own store and there is no hook between the two, which is exactly why rsp_update.c has to
+//! recover the tasks that slip through.
+#define COMBO_REPAIR_TASK 1
+
+//! RDRAM address of the guest's own OSTask, captured from the descriptor load's DMA parameters, and the
+//! authoritative source for a repair. Global so rsp_update.c can decide what to dispatch from the same
+//! source rather than trusting whatever is left in DMEM -- an earlier version trusted a DMEM snapshot,
+//! which was always one task behind, and dispatched the wrong one.
+u32 gComboTaskRamAddr;
+
+//! Fallback for the window before any descriptor load has been seen. Initialised, so it lands in .data
+//! rather than .bss: a TU whose split claims only .text must not add .bss, that inserts into the pinned
+//! layout and corrupts save data at startup.
+u32 gComboShadowTask[16] = {1};
+bool gComboShadowValid;
 #endif
 
 #define CPU_SYSTEM(pCPU) ((System*)(pCPU)->pSystem)
@@ -91,6 +134,62 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
             OSReport("combo: still around %08X, x%d\n", pCPU->nPC, gComboTraceHits);
         }
     }
+
+    //! Not in the original game, see COMBO_REPAIR_TASK.
+    if (COMBO_REPAIR_TASK) {
+        Rsp* pRSP = SYSTEM_RSP(pSystem);
+
+        if (pRSP != NULL && pRSP->pDMEM != NULL) {
+            u32* pnTask = (u32*)(pRSP->pDMEM + 0xFC0);
+            s32 iWord;
+
+            //! Remember where in RDRAM the guest's own OSTask lives. Unconditional on the type, unlike
+            //! the snapshot below: this address is wanted even when the copy in DMEM is already trampled.
+            //!
+            //! The length test is not decoration. rspPut32 fills these three fields from three separate
+            //! guest stores -- SP_MEM_ADDR, then SP_DRAM_ADDR, then SP_RD_LEN, which is the one that
+            //! performs the copy -- so sampling on the address alone catches half-built transfers whose
+            //! nAddressRDRAM still belongs to the previous DMA, and a repair then reads a descriptor out
+            //! of unrelated guest memory. A descriptor load is always 0x40 bytes, so requiring RD_LEN
+            //! 0x3F pins all three registers to the same transfer.
+            if (pRSP->nAddressSP == 0xFC0 && (pRSP->nSizeGet & 0xFFF) == 0x3F) {
+                gComboTaskRamAddr = (u32)pRSP->nAddressRDRAM;
+            }
+
+            if ((u32)(pnTask[0] - 1) <= 6) {
+                if (pRSP->nAddressSP == 0xFC0) {
+                    for (iWord = 0; iWord < 16; iWord++) {
+                        gComboShadowTask[iWord] = pnTask[iWord];
+                    }
+
+                    gComboShadowValid = true;
+                }
+            } else {
+                u32* pnSource = NULL;
+                Ram* pRAM = SYSTEM_RAM(pSystem);
+
+                if (pRAM != NULL && pRAM->pBuffer != NULL && gComboTaskRamAddr != 0 &&
+                    gComboTaskRamAddr + 0x40 <= pRAM->nSize) {
+                    u32* pnGuest = (u32*)(pRAM->pBuffer + gComboTaskRamAddr);
+
+                    if ((u32)(pnGuest[0] - 1) <= 6) {
+                        pnSource = pnGuest;
+                    }
+                }
+
+                if (pnSource == NULL && gComboShadowValid) {
+                    pnSource = gComboShadowTask;
+                }
+
+                if (pnSource != NULL) {
+                    for (iWord = 0; iWord < 16; iWord++) {
+                        pnTask[iWord] = pnSource[iWord];
+                    }
+                }
+            }
+        }
+    }
+
 #endif
 
     if (!romUpdate(SYSTEM_ROM(pSystem))) {
