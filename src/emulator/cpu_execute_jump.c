@@ -21,12 +21,51 @@ s32 gComboTraceLeft = 0;
 
 //! See the declaration in system.h.
 bool gComboSwitching = false;
+
+// Defined in cpu_execute_update.c: which compiled function owns a host address, or NULL.
+CpuFunction* comboFindByHost(Cpu* pCPU, u32 nHost);
+
+//! Debug only, bounded. If this fires at all the `jr $ra` convention was broken somewhere, so the count
+//! is worth seeing even though the recovery is sound.
+s32 gComboHostJumpsLeft = 20;
 #endif
 
 s32 cpuExecuteJump(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGCN) {
     s64 curTime = OSGetTime();
 
 #if IS_MM
+    //! Not in the original game, and it fixes a whole class rather than one symptom. Read cpuGetPPC's
+    //! `jr` case to see why -- the GameCube version of this port has it in source (`_cpuGCN.c`, the
+    //! `case 0x08` of the special switch), and mm-j's asm does the same thing at cpuGetPPC+0x1438,
+    //! testing `nFlagCODE & 2` with `rlwinm. r3,r0,0,30,30`:
+    //!
+    //!     if (MIPS_RS(nOpcode) == 31 && !(pCPU->nFlagCODE & 2)) {
+    //!         mtlr rA; blr;                       // a HOST return, straight to compiled code
+    //!     } else {
+    //!         rlwinm r5,r5,0,3,31; oris r5,r5,0x8000; bl pfJump;   // a GUEST jump
+    //!     }
+    //!
+    //! So `aGPR[31]` holds a **host** address by convention -- `jalr` stores `&anCode[iCode] + 20` into
+    //! it, and `sw ra`/`lw ra` round-trip that host value through the guest's own stack. Whenever a
+    //! `jr $ra` is compiled through the pfJump side -- because `nFlagCODE & 2` was set for that pass, or
+    //! because the register was reached by a `jalr` -- a host address arrives here as `nAddressN64`, and
+    //! every lookup downstream treats it as guest. Measured earlier at `pc 80EE2858 outside RDRAM`.
+    //!
+    //! The recovery is exact rather than defensive: if the address is not in RDRAM but *is* inside a
+    //! compiled function's code, it is a host return point, and jumping there is precisely what
+    //! `mtlr` + `blr` would have done -- returning it unchanged does that, since this function's return
+    //! value IS the host address the link stub jumps to. Requiring it to land inside a known code block
+    //! keeps a genuinely corrupt target from being waved through. Comes before the KSEG fold below so a
+    //! host address is never mistaken for a guest segment alias.
+    if (gIsOotmmCombo && ((u32)nAddressN64 < 0x80000000 || (u32)nAddressN64 >= 0x80800000) &&
+        comboFindByHost(pCPU, (u32)nAddressN64) != NULL) {
+        if (gComboHostJumpsLeft > 0) {
+            gComboHostJumpsLeft--;
+            OSReport("combo: pfJump got host address %08X, returning it as the host target\n", nAddressN64);
+        }
+        return nAddressN64;
+    }
+
     //! Not in the original game. comboGameSwitch2 in the combo's payload jumps through a
     //! KSEG1 alias (comboGameSwitch3 + 0x20000000). The recompiler passes the raw register
     //! value straight here, so fold any segment alias back to KSEG0 before it is used as a

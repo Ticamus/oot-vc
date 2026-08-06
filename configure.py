@@ -320,6 +320,10 @@ config.libs = [
             Object(NotLinked, "emulator/cpu_3.c"),
             Object(LinkedFor("mm-j"), "emulator/cpu_reset.c"),
             Object(NotLinked, "emulator/cpu_4.c"),
+            # Carved so the OoTMM combo can teach the function-boundary scanner about GCC-style
+            # tail calls; see COMBO_TAIL_CALL in the file.
+            Object(LinkedFor("mm-j"), "emulator/cpu_find_function.c"),
+            Object(NotLinked, "emulator/cpu_5.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/pif.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/ram.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/rom.c"),

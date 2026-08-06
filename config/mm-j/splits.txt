@@ -79,7 +79,13 @@ emulator/cpu_reset.c:
 	.sdata2     start:0x80201530 end:0x80201538
 
 emulator/cpu_4.c:
-	.text       start:0x8004BD8C end:0x8004F774
+	.text       start:0x8004BD8C end:0x8004C9A4
+
+emulator/cpu_find_function.c:
+	.text       start:0x8004C9A4 end:0x8004D314
+
+emulator/cpu_5.c:
+	.text       start:0x8004D314 end:0x8004F774
 
 emulator/pif.c:
 	.text       start:0x8004F774 end:0x800504E0

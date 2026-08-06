@@ -1,5 +1,6 @@
 #include "emulator/cpu.h"
 #include "emulator/ram.h"
+#include "revolution/os/OSError.h"
 #include "emulator/rom.h"
 #include "emulator/rsp.h"
 #include "emulator/system.h"
@@ -83,6 +84,199 @@ bool gComboShadowValid;
 
 #define CPU_SYSTEM(pCPU) ((System*)(pCPU)->pSystem)
 
+#if IS_MM
+//! Debug only. A fault inside recompiled code reports a host PC in the code cache, which says nothing
+//! about the guest. This names the guest function instead, by scanning the function tree for the node
+//! whose compiled code contains SRR0, then dumping the guest words around both ends of its bounds. It
+//! **uninstalls itself** before returning: the OS reloads the faulting context afterwards, so the same
+//! instruction faults again immediately and the default handler prints the usual full dump the second
+//! time. All storage initialised, so none of it lands in .bss (this TU's split claims only .text).
+Cpu* gComboCpu = (Cpu*)-1;
+s32 gComboFaultArmed = -1;
+
+//! Debug only. Bounded, initialised so it lands in .data. See the stack check in cpuExecuteUpdate.
+s32 gComboBadStackLeft = 4;
+
+static CpuFunction* comboFindByHostNode(CpuFunction* pNode, u32 nHost, s32 nDepth) {
+    CpuFunction* pFound;
+
+    // Bounded: this runs inside an exception, and a corrupt tree must not take the handler with it.
+    // 400 not 64: the function tree is a BST keyed on nAddress0 and inserts largely in address order, so
+    // it is badly skewed and a legitimate node can sit far deeper than a balanced log2(N) -- a too-small
+    // cap made comboFindByHost miss real nodes and report "not in any compiled function" wrongly.
+    if (pNode == NULL || nDepth > 400) {
+        return NULL;
+    }
+
+    if (pNode->pfCode != NULL && nHost >= (u32)pNode->pfCode &&
+        nHost < (u32)pNode->pfCode + (u32)pNode->memory_size) {
+        return pNode;
+    }
+
+    if ((pFound = comboFindByHostNode(pNode->left, nHost, nDepth + 1)) != NULL) {
+        return pFound;
+    }
+    return comboFindByHostNode(pNode->right, nHost, nDepth + 1);
+}
+
+//! Debug only. The compiled function whose host code starts closest below nHost, for when exact
+//! containment fails -- it names what the fault is just past, which a bare "not found" cannot.
+static void comboFindNearestBelowNode(CpuFunction* pNode, u32 nHost, s32 nDepth, CpuFunction** ppBest) {
+    if (pNode == NULL || nDepth > 400) {
+        return;
+    }
+    if (pNode->pfCode != NULL && (u32)pNode->pfCode <= nHost &&
+        (*ppBest == NULL || (u32)pNode->pfCode > (u32)(*ppBest)->pfCode)) {
+        *ppBest = pNode;
+    }
+    comboFindNearestBelowNode(pNode->left, nHost, nDepth + 1, ppBest);
+    comboFindNearestBelowNode(pNode->right, nHost, nDepth + 1, ppBest);
+}
+
+//! Which compiled function, if any, owns a host address.
+CpuFunction* comboFindByHost(Cpu* pCPU, u32 nHost) {
+    CpuFunction* pFound;
+
+    if (pCPU == NULL || pCPU == (Cpu*)-1 || pCPU->gTree == NULL) {
+        return NULL;
+    }
+
+    if ((pFound = comboFindByHostNode(pCPU->gTree->left, nHost, 0)) != NULL) {
+        return pFound;
+    }
+    return comboFindByHostNode(pCPU->gTree->right, nHost, 0);
+}
+
+static void comboDumpGuest(s32 nGuest, s32 nFromWord, s32 nToWord, Ram* pRAM) {
+    u32 nOffset = (u32)nGuest & 0x1FFFFFFF;
+    s32 iWord;
+
+    if (pRAM == NULL || pRAM->pBuffer == NULL || (s32)(nOffset + nFromWord * 4) < 0 ||
+        nOffset + (nToWord + 8) * 4 > (u32)pRAM->nSize) {
+        return;
+    }
+
+    for (iWord = nFromWord; iWord < nToWord; iWord += 8) {
+        u32* pnCode = (u32*)(pRAM->pBuffer + nOffset);
+        OSReport("combo:   rdram %08X: %08X %08X %08X %08X %08X %08X %08X %08X\n", nGuest + iWord * 4,
+                 pnCode[iWord + 0], pnCode[iWord + 1], pnCode[iWord + 2], pnCode[iWord + 3], pnCode[iWord + 4],
+                 pnCode[iWord + 5], pnCode[iWord + 6], pnCode[iWord + 7]);
+    }
+}
+
+//! Debug only. The guest register file at the last block boundary. A near-null DAR (a small offset off a
+//! zeroed base) is a bad pointer in some GPR, and this is what names it. The values are as of the last
+//! boundary, not the faulting instruction -- the recompiler runs many guest ops between boundaries -- but
+//! for a fault a few instructions into a block that is close enough to spot the offender.
+static void comboDumpGPR(Cpu* pCPU) {
+    static const char* asName[32] = {"r0", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2",
+                                     "t3", "t4", "t5", "t6", "t7", "s0", "s1", "s2", "s3", "s4", "s5",
+                                     "s6", "s7", "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"};
+    s32 i;
+
+    for (i = 0; i < 32; i += 4) {
+        OSReport("combo:   %s %08X  %s %08X  %s %08X  %s %08X\n", asName[i], pCPU->aGPR[i].u32, asName[i + 1],
+                 pCPU->aGPR[i + 1].u32, asName[i + 2], pCPU->aGPR[i + 2].u32, asName[i + 3],
+                 pCPU->aGPR[i + 3].u32);
+    }
+}
+
+static void comboFaultNamer(u8 nError, OSContext* pContext, u32 nDSISR, u32 nDAR) {
+    Cpu* pCPU = gComboCpu;
+    CpuFunction* pFunction;
+    Ram* pRAM = SYSTEM_RAM((System*)pCPU->pSystem);
+
+    OSSetErrorHandler(nError, NULL);
+
+    pFunction = comboFindByHost(pCPU, pContext->srr0);
+
+    if (pFunction != NULL) {
+        OSReport("combo: fault %d at host %08X is guest %08X..%08X (code %08X, +%X), dar %08X, guest pc %08X, "
+                 "mode %08X, jumps %d\n",
+                 nError, pContext->srr0, pFunction->nAddress0, pFunction->nAddress1, pFunction->pfCode,
+                 pContext->srr0 - (u32)pFunction->pfCode, nDAR, pCPU->nPC, pCPU->nMode, pFunction->nCountJump);
+
+        //! The words ahead of the claimed entry: a real prologue there means the bounds are right and the
+        //! guest jumped somewhere it should not; live code running into nAddress0 means the scan started
+        //! mid-function. And the words straddling nAddress1: what the scan stopped on and what follows it
+        //! -- the one thing that says whether a truncation is the fault.
+        comboDumpGuest(pFunction->nAddress0, -8, 24, pRAM);
+        comboDumpGuest(pFunction->nAddress1, -8, 16, pRAM);
+    } else {
+        CpuFunction* pBelow = NULL;
+
+        comboFindNearestBelowNode(pCPU->gTree != NULL ? pCPU->gTree->left : NULL, pContext->srr0, 0, &pBelow);
+        comboFindNearestBelowNode(pCPU->gTree != NULL ? pCPU->gTree->right : NULL, pContext->srr0, 0, &pBelow);
+
+        if (pBelow != NULL) {
+            OSReport("combo: fault %d at host %08X, nearest fn below is guest %08X..%08X (code %08X, host +%X "
+                     "of size %X), dar %08X, guest pc %08X, mode %08X\n",
+                     nError, pContext->srr0, pBelow->nAddress0, pBelow->nAddress1, pBelow->pfCode,
+                     pContext->srr0 - (u32)pBelow->pfCode, pBelow->memory_size, nDAR, pCPU->nPC, pCPU->nMode);
+        } else {
+            OSReport("combo: fault %d at host %08X not in any compiled function, dar %08X, guest pc %08X, "
+                     "mode %08X\n",
+                     nError, pContext->srr0, nDAR, pCPU->nPC, pCPU->nMode);
+        }
+    }
+
+    //! The caller: aGPR[31] holds a host address by the $ra convention, so resolving it names the guest
+    //! function the faulting code will return into -- the real context when nPC is a stale boundary.
+    {
+        CpuFunction* pCaller = comboFindByHost(pCPU, pCPU->aGPR[31].u32);
+
+        if (pCaller != NULL) {
+            OSReport("combo:   ra %08X is guest %08X..%08X (+%X)\n", pCPU->aGPR[31].u32, pCaller->nAddress0,
+                     pCaller->nAddress1, pCPU->aGPR[31].u32 - (u32)pCaller->pfCode);
+        } else {
+            OSReport("combo:   ra %08X not resolved\n", pCPU->aGPR[31].u32);
+        }
+    }
+
+    //! Always: the register file names the bad pointer behind a near-null DAR, and the code at nPC says
+    //! what the guest is running regardless of whether the host address resolved to a tree node.
+    comboDumpGPR(pCPU);
+    comboDumpGuest(pCPU->nPC, -8, 16, pRAM);
+}
+
+//! Debug only. The SRR0=0/LR=0 "Unhandled Exception 3" crash is cpuExecuteUpdate returning false: the
+//! recompiler's link stub ends `mtlr r3` + `blr` and jumps to whatever the helper returned without ever
+//! testing it, so a false return lands the console at PC 0. Nothing in that dump says which of the three
+//! failure returns fired, so name it here. Site 2 (cpuFindAddress) is the interesting one; its two modes
+//! are told apart by pFunctionLast's bounds and by what MIPS sits at nPC.
+//! See COMBO_FIND_NOTE in cpu_find_function.c.
+extern s32 gComboFindAddr;
+extern s32 gComboFindReason;
+extern s32 gComboFindStart;
+extern s32 gComboFindEnd;
+extern s32 gComboFindStop;
+
+static void comboLogUpdateFail(Cpu* pCPU, s32 nSite) {
+    OSReport("combo: cpuExecuteUpdate FAILED site %d, pc %08X mode %08X isMM %d retrace %d/%d treeMem %d\n",
+             nSite, pCPU->nPC, pCPU->nMode, pCPU->isMM, pCPU->nRetrace, pCPU->nRetraceUsed,
+             pCPU->gTree != NULL ? pCPU->gTree->total_memory : -1);
+
+    if (nSite == 2) {
+        CpuFunction* pFunction = pCPU->pFunctionLast;
+
+        if (pFunction != NULL) {
+            OSReport("combo:   pFunctionLast %08X range %08X..%08X code %08X\n", pFunction, pFunction->nAddress0,
+                     pFunction->nAddress1, pFunction->pfCode);
+        } else {
+            OSReport("combo:   pFunctionLast NULL\n");
+        }
+
+        OSReport("combo:   find: addr %08X reason %d range %08X..%08X stop %08X\n", gComboFindAddr,
+                 gComboFindReason, gComboFindStart, gComboFindEnd, gComboFindStop);
+
+        //! What actually sits at nPC: real MIPS means the recompiler refused it (scanner bounds or an
+        //! opcode cpuGetPPC won't compile); zeros/garbage mean the guest jumped into RDRAM that was never
+        //! filled, i.e. a DMA problem rather than the recompiler.
+        comboDumpGuest(pCPU->nPC, -16, 32, SYSTEM_RAM((System*)pCPU->pSystem));
+    }
+}
+#endif
+
 // Both helpers are inlined into cpuExecuteUpdate by MWCC and are used nowhere else, so
 // they travel with it rather than staying behind in cpu.c.
 static inline s32 treeMemory(Cpu* pCPU) {
@@ -121,6 +315,27 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
     pSystem = CPU_SYSTEM(pCPU);
 
 #if IS_MM
+    //! Debug only, see comboFaultNamer. Armed once, from inside the guest, so the tree and pCPU are live.
+    gComboCpu = pCPU;
+    if (gComboFaultArmed < 0) {
+        gComboFaultArmed = 1;
+        OSSetErrorHandler(OS_ERR_DSI, (OSErrorHandler)comboFaultNamer);
+        OSSetErrorHandler(OS_ERR_ALIGNMENT, (OSErrorHandler)comboFaultNamer);
+        OSSetErrorHandler(OS_ERR_PROGRAM, (OSErrorHandler)comboFaultNamer);
+    }
+
+    //! Debug only. The guest `$sp` leaving RDRAM is fatal in a way that points nowhere useful: the
+    //! recompiler's stack fast path compiles `imm(sp)` to `add r7,$sp,rRamOffset` + `lwz` with no mask
+    //! and no bound, so a leaked stack pointer lands past MEM1 and the DSI names whatever function
+    //! happened to touch the stack next. This runs on every block boundary, so it catches the corruption
+    //! within a few instructions of its cause. One-shot burst, since after the first report every later
+    //! frame is noise.
+    if (gComboBadStackLeft > 0 && (pCPU->aGPR[29].u32 < 0x80000000 || pCPU->aGPR[29].u32 >= 0x80800000)) {
+        gComboBadStackLeft--;
+        OSReport("combo: guest sp %08X is outside RDRAM, pc %08X, ra %08X, isMM %d, mode %08X\n",
+                 pCPU->aGPR[29].u32, pCPU->nPC, pCPU->aGPR[31].u32, pCPU->isMM, pCPU->nMode);
+    }
+
     //! Debug only, see COMBO_TRACE_REGION.
     if (gComboTraceLeft > 0) {
         s32 nDelta = pCPU->nPC - gComboTracePC;
@@ -193,6 +408,9 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
 #endif
 
     if (!romUpdate(SYSTEM_ROM(pSystem))) {
+#if IS_MM
+        comboLogUpdateFail(pCPU, 0);
+#endif
         return false;
     }
 
@@ -285,6 +503,9 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
     // the cached local.
     if ((pCPU->nMode & 8) && !(pCPU->nMode & 4) && gpSystem->bException) {
         if (!systemCheckInterrupts(gpSystem)) {
+#if IS_MM
+            comboLogUpdateFail(pCPU, 1);
+#endif
             return false;
         }
     }
@@ -292,6 +513,9 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
     if (pCPU->nMode & 4) {
         pCPU->nMode &= ~0x84;
         if (!cpuFindAddress(pCPU, pCPU->nPC, pnAddressGCN)) {
+#if IS_MM
+            comboLogUpdateFail(pCPU, 2);
+#endif
             return false;
         }
     }
