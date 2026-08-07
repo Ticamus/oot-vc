@@ -339,6 +339,7 @@ config.libs = [
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/soundRVL.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/video.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/storeRVL.c"),
+            Object(NotLinked, "emulator/store.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/controller.c", mw_version="GC/3.0a5.2"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/errordisplay.c"),
             Object(LinkedFor("oot-j", "oot-u"), "emulator/banner.c"),
@@ -347,7 +348,7 @@ config.libs = [
             # of rsp.c still has an undefined fn_80056B48 (rspEvent's MM-only DMEM-init
             # counterpart) that isn't written yet, which would abort the whole-DOL link.
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/rsp.c"),
-            Object(LinkedFor("mm-j"), "emulator/rspGet32.c"),
+            Object(NotLinked, "emulator/rspGet32.c"),
             Object(NotLinked, "emulator/rsp_2.c"),
             Object(NotLinked, "emulator/rdp.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/xlCoreRVL.c"),
@@ -390,7 +391,7 @@ config.libs = [
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "revolution/os/OSAudioSystem.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "revolution/os/OSCache.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "revolution/os/OSContext.c"),
-            Object(LinkedFor("oot-j", "oot-u", "oot-e"), "revolution/os/OSError.c"),
+            Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "revolution/os/OSError.c"),
             Object(NotLinked, "revolution/os/OSExec.c", cflags=[*cflags_base, "-Cpp_exceptions off", "-O4,p", "-ipa off"]),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "revolution/os/OSFatal.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "revolution/os/OSFont.c"),

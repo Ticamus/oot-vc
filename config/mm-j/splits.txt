@@ -208,6 +208,12 @@ emulator/xlObject.c:
 	.text       start:0x8008979C end:0x80089B58
 	.sbss       start:0x802008C8 end:0x802008D0
 
+revolution/os/OSError.c:
+	.text       start:0x80094388 end:0x80094AB8
+	.data       start:0x801581E0 end:0x801584FC
+	.bss        start:0x801971D0 end:0x80197214
+	.sdata      start:0x80200118 end:0x80200120
+
 runtime/__init_cpp_exceptions.cpp:
 	.text       start:0x80132F90 end:0x80133000
 	.ctors      start:0x8014A080 end:0x8014A084 rename:.ctors$10
