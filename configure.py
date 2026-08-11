@@ -363,11 +363,9 @@ config.libs = [
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/errordisplay.c"),
             Object(LinkedFor("oot-j", "oot-u"), "emulator/banner.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/stringtable.c"),
-            # mm-j: only rspGet32 (carved into its own TU below) is source-linked; the rest
-            # of rsp.c still has an undefined fn_80056B48 (rspEvent's MM-only DMEM-init
-            # counterpart) that isn't written yet, which would abort the whole-DOL link.
+            # mm-j: only rspGet32 is source-linked
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/rsp.c"),
-            Object(NotLinked, "emulator/rspGet32.c"),
+            Object(LinkedFor("mm-j"), "emulator/rspGet32.c"),
             Object(NotLinked, "emulator/rsp_2.c"),
             # mm-j: rspUpdate carved out to instrument the RSP task/frame pairing.
             Object(LinkedFor("mm-j"), "emulator/rsp_update.c"),

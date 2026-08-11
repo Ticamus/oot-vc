@@ -384,12 +384,10 @@ bool systemExceptionPending(System* pSystem, SystemInterruptType nException);
 bool systemEvent(System* pSystem, s32 nEvent, void* pArgument);
 
 #if IS_MM
-//! Not in the original game. True when the loaded image is the OoTMM randomizer's combined
-//! ROM. Detected once in systemSetupGameALL(); everything guarded by it is inert for
-//! vanilla Majora's Mask.
+//! Detected once in systemSetupGameALL()
 extern bool gIsOotmmCombo;
 
-//! Not in the original game. mm-j picks per-game behaviour by comparing System+0x18 -- the field
+//! mm-j picks per-game behaviour by comparing System+0x18 -- the field
 //! this decomp calls storageDevice -- against a small integer per title rather than testing
 //! eTypeROM the way the oot-* builds do. MM is 5. About twenty-five sites read it, across frame.s,
 //! rdp.s, rsp.s, eeprom.s and cpuGetPPC.
@@ -416,9 +414,9 @@ extern bool gIsOotmmCombo;
 #define COMBO_GAME_MODE_MM 5 // SOT_ROM
 
 
-//! Not in the original game. True from the moment the combo's switch stub takes over
-//! (comboGameSwitch2's jump through KSEG1) until comboEmulatorSwitchFix() has run. The stub
-//! runs with the RCP halted and the VI disabled, so emulator paths that normally wait for a
+//! True from the moment the combo's switch stub takes over (comboGameSwitch2's jump through KSEG1)
+//! until comboEmulatorSwitchFix() has run. The stub runs with the
+//! RCP halted and the VI disabled, so emulator paths that normally wait for a
 //! retrace or a later update pass have to complete synchronously while this is set.
 extern bool gComboSwitching;
 

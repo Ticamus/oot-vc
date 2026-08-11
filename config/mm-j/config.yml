@@ -21,9 +21,6 @@ mw_comment_version: 14
 # - lbl_801E3380
 # - DemoAllocator2
 
-# Exception vector templates load TRKInterruptHandler as a raw lis/ori pair.
-# dtk treats lis+ori as a 32-bit constant, so without these the vectors keep
-# pointing at the original address and break as soon as .text size changes.
 add_relocations:
 - source: 0x800046F8
   type: ha
@@ -169,9 +166,6 @@ add_relocations:
 - source: 0x800063E4
   type: l
   target: TRKInterruptHandler
-# libraryTestFunction builds these addresses with a raw lis/addi pair split
-# across a stack spill, which dtk cannot pair up. Same fix as commit c3a38ff
-# applied to oot-e/oot-j/oot-u, which never covered mm-j.
 - source: 0x80077DC0
   type: ha
   target: osViSwapBuffer_Entry

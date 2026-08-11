@@ -2606,16 +2606,6 @@ bool systemReset(System* pSystem) {
 
         romGetCode(SYSTEM_ROM(pSystem), (char*)&nTypeROM);
 
-        //! Not in the original game. Recognise the OoTMM combined ROM by its internal name at
-        //! header offset 0x20 and report MM US regardless of the game code its builder wrote at
-        //! 0x3B (NEDE by default). Every per-game decision in this build is keyed on that code
-        //! being one of NZSJ/NZSE/NZSP -- the 8 MB Expansion Pak in systemSetupGameRAM(), the
-        //! storage device and controller map in systemGetInitialConfiguration(), and the whole
-        //! MM block in systemSetupGameALL() (audio microcode 0x17D9, RSP timings, code hacks,
-        //! nCompileFlag) -- so an unrecognised code leaves the emulator set up for a 4 MB
-        //! cartridge with no save device and neither half of the combo boots. NZSE is also the
-        //! code storeRVL.c builds the save file name from, so it has to stay NZSE across
-        //! rebuilds of the image for saves to survive.
         gIsOotmmCombo = comboTestName(SYSTEM_ROM(pSystem));
 
         if (gIsOotmmCombo) {
@@ -2679,10 +2669,7 @@ bool systemReset(System* pSystem) {
         }
 
 #if IS_MM
-        //! Not in the original game. See COMBO_GAME_MODE_OOT. After the loop, never before it:
-        //! frameEvent's case 0x1003 guards five of its xlHeapTake() calls on the mode being MM's 5,
-        //! and those are the Frame temp/copy/camera buffers. The combo always boots into OoT
-        //! whatever its header says; comboEmulatorSwitchFix() flips it on every handover.
+        // Variable name is wrong
         if (COMBO_MODE_FLIP && gIsOotmmCombo) {
             pSystem->storageDevice = COMBO_GAME_MODE_OOT;
         }
