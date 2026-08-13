@@ -5,6 +5,11 @@ hash: f73ffd7ac942edec9d06807506448f043651c3a5
 symbols: config/mm-j/symbols.txt
 splits: config/mm-j/splits.txt
 
+# Custom linker-script template: identical to dtk's default, but adds trailing
+# .crashtext/.crashdata/.crashbss sections (for the visual crash debugger, crashScreen.c)
+# after .sbss2 so no retail section address changes. See config/mm-j/ldscript.tpl.
+ldscript_template: config/mm-j/ldscript.tpl
+
 # Change this to match the linker verison.
 # See config.example.yml for a list.
 mw_comment_version: 14

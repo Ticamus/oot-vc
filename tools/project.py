@@ -932,6 +932,24 @@ def generate_build_ninja(
         link_step = LinkStep(build_config)
         for unit in build_config["units"]:
             add_unit(unit, link_step)
+
+        # Extra objects: new code with no retail counterpart
+        # so there's no split unit to hang them off of. Appended at the end of the link inputs
+        unit_names = {unit["name"] for unit in build_config["units"]}
+        for obj_name, obj in version_objects[version].items():
+            if obj_name in unit_names or not obj.options.get("extra_unit"):
+                continue
+            if obj.src_path is None or not obj.src_path.exists():
+                sys.exit(f"Missing source file for extra unit {obj_name}: {obj.src_path}")
+            if obj.src_path.suffix in (".c", ".cp", ".cpp"):
+                built_obj_path = c_build(obj, obj.src_path)
+            elif obj.src_path.suffix == ".s":
+                built_obj_path = asm_build(obj, obj.src_path, obj.src_obj_path)
+            else:
+                sys.exit(f"Unknown source file type {obj.src_path}")
+            if built_obj_path is not None:
+                link_step.add(built_obj_path)
+
         link_steps.append(link_step)
 
         if config.build_rels:

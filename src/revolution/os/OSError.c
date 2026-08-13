@@ -1,3 +1,5 @@
+#include "emulator/crashScreen.h"
+#include "macros.h"
 #include "revolution/base.h"
 #include "revolution/dsp.h"
 #include "revolution/os.h"
@@ -151,6 +153,22 @@ void __OSUnhandledException(u8 error, OSContext* ctx, u32 dsisr, u32 dar) {
         OSReport("Unhandled Exception %d", error);
     }
 
+#if IS_MM
+    // See crashScreen.h
+    switch (CrashScreenEnter()) {
+        case 0:
+            break;
+        case 1:
+            OSReport("First crash crashed!");
+            CrashScreenShow();
+            break;
+        default:
+            OSReport("All crash crashed!");
+            PPCHalt();
+            break;
+    }
+#endif
+
     OSReport("\n");
     OSDumpContext(ctx);
     OSReport("\nDSISR = 0x%08x                   DAR  = 0x%08x\n", dsisr, dar);
@@ -188,5 +206,10 @@ void __OSUnhandledException(u8 error, OSContext* ctx, u32 dsisr, u32 dar) {
 
     OSReport("\nLast interrupt (%d): SRR0 = 0x%08x  TB = 0x%016llx\n", __OSLastInterrupt, __OSLastInterruptSrr0,
              __OSLastInterruptTime);
+
+#if IS_MM
+    CrashScreenShow();
+#else
     PPCHalt();
+#endif
 }

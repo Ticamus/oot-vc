@@ -361,6 +361,14 @@ config.libs = [
             Object(NotLinked, "emulator/store.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/controller.c", mw_version="GC/3.0a5.2"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/errordisplay.c"),
+            # New code (no retail counterpart): the visual crash debugger, shown from
+            # __OSUnhandledException (see OSError.c). extra_unit links it without a retail
+            # split unit; -sdata/-sdata2 0 plus the file's section pragmas keep every byte in
+            # private .crashtext/.crashdata/.crashbss sections, which the custom ldscript
+            # template places after .sbss2 so no retail section address moves. mm-j only for
+            # now (its config.yml carries the matching ldscript_template).
+            Object(LinkedFor("mm-j"), "emulator/crashScreen.c", extra_unit=True,
+                   extra_cflags=["-sdata 0", "-sdata2 0"]),
             Object(LinkedFor("oot-j", "oot-u"), "emulator/banner.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/stringtable.c"),
             # mm-j: only rspGet32 is source-linked

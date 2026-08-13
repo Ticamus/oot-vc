@@ -182,11 +182,18 @@ static void comboDumpGPR(Cpu* pCPU) {
 }
 
 static void comboFaultNamer(u8 nError, OSContext* pContext, u32 nDSISR, u32 nDAR) {
-    Cpu* pCPU = gComboCpu;
+    Cpu* pCPU;
     CpuFunction* pFunction;
-    Ram* pRAM = SYSTEM_RAM((System*)pCPU->pSystem);
+    Ram* pRAM;
 
-    OSSetErrorHandler(nError, NULL);
+    OSSetErrorHandler(OS_ERR_DSI, NULL);
+    OSSetErrorHandler(OS_ERR_ALIGNMENT, NULL);
+    OSSetErrorHandler(OS_ERR_PROGRAM, NULL);
+    pCPU = gComboCpu;
+    if (pCPU == NULL || pCPU == (Cpu*)-1) {
+        return;
+    }
+    pRAM = SYSTEM_RAM((System*)pCPU->pSystem);
 
     pFunction = comboFindByHost(pCPU, pContext->srr0);
 
@@ -196,10 +203,6 @@ static void comboFaultNamer(u8 nError, OSContext* pContext, u32 nDSISR, u32 nDAR
                  nError, pContext->srr0, pFunction->nAddress0, pFunction->nAddress1, pFunction->pfCode,
                  pContext->srr0 - (u32)pFunction->pfCode, nDAR, pCPU->nPC, pCPU->nMode, pFunction->nCountJump);
 
-        //! The words ahead of the claimed entry: a real prologue there means the bounds are right and the
-        //! guest jumped somewhere it should not; live code running into nAddress0 means the scan started
-        //! mid-function. And the words straddling nAddress1: what the scan stopped on and what follows it
-        //! -- the one thing that says whether a truncation is the fault.
         comboDumpGuest(pFunction->nAddress0, -8, 24, pRAM);
         comboDumpGuest(pFunction->nAddress1, -8, 16, pRAM);
     } else {
@@ -220,8 +223,6 @@ static void comboFaultNamer(u8 nError, OSContext* pContext, u32 nDSISR, u32 nDAR
         }
     }
 
-    //! The caller: aGPR[31] holds a host address by the $ra convention, so resolving it names the guest
-    //! function the faulting code will return into -- the real context when nPC is a stale boundary.
     {
         CpuFunction* pCaller = comboFindByHost(pCPU, pCPU->aGPR[31].u32);
 
@@ -233,18 +234,10 @@ static void comboFaultNamer(u8 nError, OSContext* pContext, u32 nDSISR, u32 nDAR
         }
     }
 
-    //! Always: the register file names the bad pointer behind a near-null DAR, and the code at nPC says
-    //! what the guest is running regardless of whether the host address resolved to a tree node.
     comboDumpGPR(pCPU);
     comboDumpGuest(pCPU->nPC, -8, 16, pRAM);
 }
 
-//! Debug only. The SRR0=0/LR=0 "Unhandled Exception 3" crash is cpuExecuteUpdate returning false: the
-//! recompiler's link stub ends `mtlr r3` + `blr` and jumps to whatever the helper returned without ever
-//! testing it, so a false return lands the console at PC 0. Nothing in that dump says which of the three
-//! failure returns fired, so name it here. Site 2 (cpuFindAddress) is the interesting one; its two modes
-//! are told apart by pFunctionLast's bounds and by what MIPS sits at nPC.
-//! See COMBO_FIND_NOTE in cpu_find_function.c.
 extern s32 gComboFindAddr;
 extern s32 gComboFindReason;
 extern s32 gComboFindStart;
@@ -269,16 +262,11 @@ static void comboLogUpdateFail(Cpu* pCPU, s32 nSite) {
         OSReport("combo:   find: addr %08X reason %d range %08X..%08X stop %08X\n", gComboFindAddr,
                  gComboFindReason, gComboFindStart, gComboFindEnd, gComboFindStop);
 
-        //! What actually sits at nPC: real MIPS means the recompiler refused it (scanner bounds or an
-        //! opcode cpuGetPPC won't compile); zeros/garbage mean the guest jumped into RDRAM that was never
-        //! filled, i.e. a DMA problem rather than the recompiler.
         comboDumpGuest(pCPU->nPC, -16, 32, SYSTEM_RAM((System*)pCPU->pSystem));
     }
 }
 #endif
 
-// Both helpers are inlined into cpuExecuteUpdate by MWCC and are used nowhere else, so
-// they travel with it rather than staying behind in cpu.c.
 static inline s32 treeMemory(Cpu* pCPU) {
     if (pCPU->gTree != NULL) {
         return pCPU->gTree->total_memory;
@@ -315,7 +303,6 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
     pSystem = CPU_SYSTEM(pCPU);
 
 #if IS_MM
-    //! Debug only, see comboFaultNamer. Armed once, from inside the guest, so the tree and pCPU are live.
     gComboCpu = pCPU;
     if (gComboFaultArmed < 0) {
         gComboFaultArmed = 1;
@@ -324,19 +311,12 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
         OSSetErrorHandler(OS_ERR_PROGRAM, (OSErrorHandler)comboFaultNamer);
     }
 
-    //! Debug only. The guest `$sp` leaving RDRAM is fatal in a way that points nowhere useful: the
-    //! recompiler's stack fast path compiles `imm(sp)` to `add r7,$sp,rRamOffset` + `lwz` with no mask
-    //! and no bound, so a leaked stack pointer lands past MEM1 and the DSI names whatever function
-    //! happened to touch the stack next. This runs on every block boundary, so it catches the corruption
-    //! within a few instructions of its cause. One-shot burst, since after the first report every later
-    //! frame is noise.
     if (gComboBadStackLeft > 0 && (pCPU->aGPR[29].u32 < 0x80000000 || pCPU->aGPR[29].u32 >= 0x80800000)) {
         gComboBadStackLeft--;
         OSReport("combo: guest sp %08X is outside RDRAM, pc %08X, ra %08X, isMM %d, mode %08X\n",
                  pCPU->aGPR[29].u32, pCPU->nPC, pCPU->aGPR[31].u32, pCPU->isMM, pCPU->nMode);
     }
 
-    //! Debug only, see COMBO_TRACE_REGION.
     if (gComboTraceLeft > 0) {
         s32 nDelta = pCPU->nPC - gComboTracePC;
 
@@ -350,7 +330,6 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
         }
     }
 
-    //! Not in the original game, see COMBO_REPAIR_TASK.
     if (COMBO_REPAIR_TASK) {
         Rsp* pRSP = SYSTEM_RSP(pSystem);
 
@@ -358,15 +337,6 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
             u32* pnTask = (u32*)(pRSP->pDMEM + 0xFC0);
             s32 iWord;
 
-            //! Remember where in RDRAM the guest's own OSTask lives. Unconditional on the type, unlike
-            //! the snapshot below: this address is wanted even when the copy in DMEM is already trampled.
-            //!
-            //! The length test is not decoration. rspPut32 fills these three fields from three separate
-            //! guest stores -- SP_MEM_ADDR, then SP_DRAM_ADDR, then SP_RD_LEN, which is the one that
-            //! performs the copy -- so sampling on the address alone catches half-built transfers whose
-            //! nAddressRDRAM still belongs to the previous DMA, and a repair then reads a descriptor out
-            //! of unrelated guest memory. A descriptor load is always 0x40 bytes, so requiring RD_LEN
-            //! 0x3F pins all three registers to the same transfer.
             if (pRSP->nAddressSP == 0xFC0 && (pRSP->nSizeGet & 0xFFF) == 0x3F) {
                 gComboTaskRamAddr = (u32)pRSP->nAddressRDRAM;
             }
@@ -424,10 +394,6 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
     }
 
     root = pCPU->gTree;
-    //! Not in the original game. An OoTMM combo game switch has just called treeKill(), so
-    //! the tree is gone. Skip the collector this once: there is nothing to collect, and
-    //! letting treeCleanUp() run would risk killing the incoming game's entry function
-    //! between the cpuFindAddress() below compiling it and the caller using it.
     if (root != NULL) {
         treeTimerCheck(pCPU);
         if (pCPU->nRetrace == pCPU->nRetraceUsed && root->kill_number < 12) {
@@ -468,12 +434,6 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
     }
 
 #if IS_MM
-    //! Not in the original game. This is the point where the incoming game's VI has come back
-    //! to life: the block above only advances nRetraceUsed once viForceRetrace() succeeds, which
-    //! needs the guest to have reprogrammed VI_CONTROL_REG after waitSubsystems() zeroed it.
-    //! Until then the retrace gap cannot close, and romCopyUpdate() defers every callback-driven
-    //! copy -- which is why the switch window has to stay open across the incoming game's early
-    //! boot rather than ending at comboGameSwitch4's jump. See gComboSwitching in system.h.
     if (gComboSwitching && pCPU->nRetrace == pCPU->nRetraceUsed) {
         gComboSwitching = false;
         OSReport("combo: retrace counters back in sync at %d, switch window closed\n", pCPU->nRetrace);
@@ -483,8 +443,6 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
     if (pCPU->nMode & 1) {
         nCounter = pCPU->anCP0[9];
         nCompare = pCPU->anCP0[11];
-        // MM compares the delta itself rather than nCounter + delta, and reaches the
-        // System through pCPU rather than the cached local.
         if (nCounterDelta >= nCounter) {
             if (nCounter < nCompare && nCounterDelta >= nCompare) {
                 pCPU->nMode &= ~1;
@@ -496,11 +454,8 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
         }
     }
 
-    // MM assigns the delta rather than accumulating into the counter.
     pCPU->anCP0[9] = nCounterDelta;
 
-    // Like the RSP block above, this one goes through the gpSystem global rather than
-    // the cached local.
     if ((pCPU->nMode & 8) && !(pCPU->nMode & 4) && gpSystem->bException) {
         if (!systemCheckInterrupts(gpSystem)) {
 #if IS_MM
