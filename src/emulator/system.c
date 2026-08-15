@@ -78,8 +78,6 @@ _XL_OBJECTTYPE gClassSystem = {
     (EventFunc)systemEvent,
 }; // size = 0x10
 
-//! Not in the original game. Defined next to the rest of the OoTMM combo support, further
-//! down; systemReset() needs it well before that.
 static bool comboTestName(Rom* pROM);
 
 #endif
@@ -1585,21 +1583,12 @@ static bool systemSetupGameALL(System* pSystem) {
     ((u32*)pBuffer2)[6] = nSize;
     systemGetInitialConfiguration(pSystem, pROM, 0);
 
-    //! Not in the original game. gIsOotmmCombo was already decided in systemReset(), which
-    //! runs comboTestName() before it publishes eTypeROM so that everything keyed on the game
-    //! code -- including the call to systemGetInitialConfiguration() just above -- sees NZSE.
-    //! Nothing else here needs changing: the combo saves through MM's FlashRAM for both
-    //! halves, so the storage device and controller map that call has chosen are right either
-    //! way. The combo always boots into OoT, whatever the code says.
     SYSTEM_CPU(pSystem)->isMM = false;
 
-    if (gIsOotmmCombo) {
-        OSReport("combo: OoTMM image detected, booting into OoT\n");
-    }
 
     pSystem->unk_94 = 1;
 
-    /*if (gSystemRomConfigurationList[0].storageDevice & 1) {
+    if (gSystemRomConfigurationList[0].storageDevice & 1) {
         var_r25 = SOT_SRAM;
         var_r24 = 0x8000;
     } else if (gSystemRomConfigurationList[0].storageDevice & 2) {
@@ -1611,10 +1600,13 @@ static bool systemSetupGameALL(System* pSystem) {
     } else if (gSystemRomConfigurationList[0].storageDevice & 8) {
         var_r25 = SOT_PAK;
         var_r24 = 0x800;
-    }*/
+    }
 
-    var_r25 = SOT_FLASH;
-    var_r24 = 0x40000;
+     if (gIsOotmmCombo) {
+        OSReport("combo: OoTMM image detected, booting into OoT\n");
+        var_r25 = SOT_FLASH;
+        var_r24 = 0x40000;
+    }
 
     if (var_r25 != SOT_NONE && !systemSetStorageDevice(pSystem, var_r25, (void*)var_r24, pSystem->unk_94)) {
         return false;
@@ -2195,18 +2187,13 @@ bool fn_800166D0(System* pSystem, s32 nAddress0, s32 nAddress1, u32 nSize, Unkno
             return false;
         }
     } else {
-        //! Not in the original game. romCopyUpdate() makes no progress on a callback-driven
-        //! copy while pCPU->nRetrace != nRetraceUsed, and only cpuExecuteUpdate() closes that
-        //! gap, through viForceRetrace(). By the time the combo's switch stub issues its cart
-        //! DMA, waitSubsystems() has written VI_CONTROL_REG and VI_CURRENT_REG to 0, so the
-        //! guest VI produces no further retrace while the host post-retrace callback keeps
-        //! incrementing nRetrace: the copy is deferred forever, piDMA_Complete never clears the
-        //! PI busy bit, and the payload spins in waitForPi().
-        //!
-        //! romCopyImmediate() copies synchronously and touches none of the copy.* state the
-        //! deferral relies on, so it also sidesteps romCopyUpdate()'s romCheckOffsets() exit.
-        //! cpuBlock.pfUnknown still holds pfUnknown, so fn_8000A504() reaches piDMA_Complete
-        //! exactly as the deferred path would have.
+        //! By the time the combo's switch stub issues its cart DMA, waitSubsystems() has zeroed
+        //! VI_CONTROL_REG/VI_CURRENT_REG, so the guest VI stops producing retraces while the host
+        //! callback keeps incrementing nRetrace. A callback-driven copy would defer forever
+        //! waiting for cpuExecuteUpdate()'s viForceRetrace() to close that gap, and the payload
+        //! would spin in waitForPi(). romCopyImmediate() copies synchronously instead, sidestepping
+        //! that deferral entirely; cpuBlock.pfUnknown still holds pfUnknown, so fn_8000A504()
+        //! reaches piDMA_Complete exactly as the deferred path would have.
         if (gComboSwitching) {
             Cpu* pCPU = SYSTEM_CPU(pSystem);
 
@@ -2306,20 +2293,16 @@ static inline bool systemSetRamMode(System* pSystem) {
 }
 
 #if IS_MM
-//! Not in the original game. Everything below implements the OoTMM combined ROM's
-//! OoT <-> MM handover, ported from the GameCube emulator's src/emulator/system.c.
+//! Everything below implements the OoTMM combined ROM's OoT <-> MM switch
 //!
-//! The combo's payload does the handover entirely on the N64 side: it halts the RCP, DMAs
-//! the foreign game's boot segment in from the cart, then `jr`s to its raw entrypoint,
-//! bypassing IPL3. Nothing tells the emulator that the code at a given N64 address has been
-//! replaced wholesale, so the recompiler keeps running functions it compiled for the game
-//! that just went away, and the libultra scheduler emulation keeps dispatching its threads.
-//! comboEmulatorSwitchFix() rebuilds the state a cold entrypoint expects.
-//! cpuExecuteJump() in cpu_execute_jump.c spots the jump and calls in here.
+//! The combo's payload does the switch entirely on the N64 side: it halts the RCP, DMAs the
+//! foreign game's boot segment in from the cart, then jr to its raw entrypoint, bypassing IPL3.
+//! Nothing tells the emulator that the code at a given N64 address has been replaced, so
+//! the recompiler keeps running functions it compiled for the game that just went away, and the
+//! libultra scheduler emulation keeps dispatching its threads. comboEmulatorSwitchFix() rebuilds
+//! the state a cold entrypoint expects; cpuExecuteJump() in cpu_execute_jump.c spots the jump and
+//! calls in here.
 
-// Raw entrypoints the payload jumps to, and the extent of the boot segment it DMAs in just
-// beforehand. Taken from the payload's own switch.c: OoT's foreign segment is 0x6430 bytes
-// at RAM offset 0x400, MM's is 0x19500 bytes at offset 0x80000.
 #define COMBO_OOT_ENTRY 0x80000400
 #define COMBO_OOT_BOOT_END 0x80006830
 #define COMBO_MM_ENTRY 0x80080000
@@ -2338,8 +2321,6 @@ static inline bool systemSetRamMode(System* pSystem) {
 #define COMBO_HEAP2_SIZE 0x104000
 #define COMBO_HEAPTREE_SIZE 0x46500
 
-// cpu.c file-scope objects and functions, reached across the splits. dtk gives every
-// function it recovers global scope, and the two objects are named in symbols.txt.
 extern u32 gaHeapTreeFlag[125];
 extern void* gHeapTree;
 bool cpuSetCP0_Status(Cpu* pCPU, u64 nStatus, u32 unknown);
@@ -2348,7 +2329,6 @@ bool treeKill(Cpu* pCPU);
 
 bool gIsOotmmCombo = false;
 
-//! Not in the original game. The mm-j link has no memcmp, hence the loop.
 static bool comboTestName(Rom* pROM) {
     static const char szName[] = "OOT+MM COMBO";
     s32 iChar;
@@ -2362,8 +2342,6 @@ static bool comboTestName(Rom* pROM) {
     return true;
 }
 
-//! Not in the original game. cpuHeapReset() is static in cpu.c and inlined away there, so
-//! keep a local copy rather than adding a symbol for something this small.
 static void comboHeapReset(u32* anFlag, s32 nCount) {
     s32 i;
 
@@ -2372,18 +2350,11 @@ static void comboHeapReset(u32* anFlag, s32 nCount) {
     }
 }
 
-//! Not in the original game. Puts the per-frame hack state back to what frameEvent()'s
-//! case 2 leaves it in, minus the GX calls, the block allocation and the viewport/scale
-//! fields: those describe the host display, not the game, and case 2 derives them from
-//! rmode and xlCoreHiResolution(). Pause capture, motion blur, the Lens of
-//! Truth and the Bombers' notebook all latch state across frames; carried from one half of
-//! the combo into the other it produces a frozen or mis-composited screen.
-//!
-//! Note there is no counterpart to the GameCube version's frameResetCache(): there, the
-//! temp/copy/camera buffers are xlHeapTake()n with sizes that depend on which game is
-//! running, so a switch had to free and re-take them. Here frameEvent()'s case 0x1003
-//! allocates them once through helpMenuAllocate(), with sizes that do not depend on the
-//! game, so there is nothing to redo.
+//! Puts the per-frame hack state back to what frameEvent()'s case 2 leaves it in, minus the GX
+//! calls, block allocation and viewport/scale fields (those describe the host display, derived
+//! from rmode, not the game). Pause capture, motion blur, the Lens of Truth and the Bombers'
+//! notebook all latch state across frames; carried from one half of the combo into the other it
+//! produces a frozen or mis-composited screen.
 static void frameTest(Frame* pFrame) {
     pFrame->nFlag = 0;
     pFrame->nMode = 0x20000;
@@ -2415,16 +2386,7 @@ static void frameTest(Frame* pFrame) {
     pFrame->bPauseBGDrawn = false;
 }
 
-//! Not in the original game. Rewrites the four N64 exception vectors so they point at the
-//! incoming game's __osException.
-//!
-//! Between the handover and the incoming game's osInitialize, the vectors still hold the
-//! outgoing game's preamble. An exception landing in that window either runs the dead
-//! game's handler outright, or -- worse -- lets libraryFindException() read the stale
-//! preamble and bind the scheduler emulation to the wrong game's globals, so the HLE starts
-//! dispatching threads that no longer exist. The foreign boot segment is already resident
-//! (the payload DMA'd it before the jump), so find its __osException by signature and write
-//! the preamble ourselves; osInitialize later writes exactly the same thing.
+//! Rewrites the four N64 exception vectors so they point at the incoming game's __osException.
 static bool comboWriteExceptionVectors(Cpu* pCPU, u32 nStart, u32 nEnd) {
     u32* pnCode;
     u32* pnVector;
@@ -2471,22 +2433,12 @@ bool comboEmulatorSwitchFix(Cpu* pCPU) {
     MI* pMI = SYSTEM_MI(gpSystem);
     Library* pLibrary = SYSTEM_LIBRARY(gpSystem);
 
-    // Note there is no eTypeROM update here, unlike the GameCube version. There, the whole
-    // renderer switches on the coarse SRT_ZELDA1/SRT_ZELDA2 type and MM had to be forced
-    // back to SRT_ZELDA2 after the switch. Here eTypeROM is the ROM's own game code, and the
-    // only places in this build that still read it at run time are one test in frame.c and
-    // one in library.c -- both against NZSJ, the mm-j channel's own JP ROM, so already false
-    // for the combo's NZSE -- plus a list in controller.c that contains both halves' codes.
-    // Rewriting it would change nothing and would desync systemGetInitialConfiguration's
-    // view of the loaded image.
-
-    //! Not in the original game. Point mm-j's per-title behaviour selector at the half about to
-    //! run -- see COMBO_GAME_MODE_OOT.
+    // Point mm-j's per-title behaviour selector at the half about to run. See COMBO_GAME_MODE_OOT.
     gpSystem->storageDevice = (pCPU->isMM || !COMBO_MODE_FLIP) ? COMBO_GAME_MODE_MM : COMBO_GAME_MODE_OOT;
 
     frameTest(SYSTEM_FRAME(gpSystem));
 
-    // Architectural state a cold entrypoint expects, as cpuReset() leaves it -- except for
+    // Architectural state a cold entrypoint expects, as cpuReset() leaves it, except for
     // Status, where IE stays clear. The payload disabled interrupts before jumping, and the
     // incoming game re-enables them itself once osInitialize has installed its own exception
     // preamble. Letting a retrace fire before that point resurrects the outgoing game's
@@ -2498,10 +2450,8 @@ bool comboEmulatorSwitchFix(Cpu* pCPU) {
 
     // Hand the recompiler the compile flag OoT's own setup would have asked for. This build
     // only ever configured itself for MM (systemSetupGameALL's NZSE case, nCompileFlag
-    // |= 0x1010), but cpuGetPPC tests exactly three bits -- 0x1, 0x10 and 0x100 -- so MM's
+    // |= 0x1010), but cpuGetPPC tests exactly three bits: 0x1, 0x10 and 0x100, so MM's
     // 0x1000 is inert and the 0x100 that OoT's case would have set (|= 0x110) is missing.
-    // The GameCube version forces the same bit for the same reason, there because the KSEG1
-    // to KSEG0 address masking it gates is what the combo's uncached accesses need.
     pCPU->nCompileFlag |= 0x111;
 
     // Keep bit 2 (resolve nPC in cpuExecuteUpdate), which cpuExecuteJump just set.
@@ -2510,11 +2460,6 @@ bool comboEmulatorSwitchFix(Cpu* pCPU) {
         pCPU->nMode |= 0x10;
     }
 
-    // Drop every recompiled function. The same N64 addresses now hold different code, and
-    // the recompiler only invalidates piecemeal on DMA, so stale functions would survive and
-    // the caller patching that rewrites call sites in place would keep jumping into them.
-    // Any failure here has to abort the switch: cpuExecuteJump would otherwise hand the
-    // recompiled code host address 0.
     if (pCPU->gTree != NULL && !treeKill(pCPU)) {
         OSReport("combo: treeKill failed, aborting switch\n");
         return false;
@@ -2541,8 +2486,7 @@ bool comboEmulatorSwitchFix(Cpu* pCPU) {
         ICInvalidateRange(gHeapTree, COMBO_HEAPTREE_SIZE);
     }
 
-    // Drop pending RCP interrupts and the N64 side exception; they belong to the game that
-    // just went away.
+    // Drop pending RCP interrupts and the N64 side exception
     if (pMI != NULL) {
         pMI->nMask = 0;
         pMI->nInterrupt = 0;
@@ -2564,15 +2508,7 @@ bool comboEmulatorSwitchFix(Cpu* pCPU) {
         comboWriteExceptionVectors(pCPU, COMBO_OOT_ENTRY, COMBO_OOT_BOOT_END);
     }
 
-    // Code hacks for the incoming game. systemSetupGameALL() only ran the NZSE case, so MM's
-    // two hacks are already registered and OoT's are not -- this build has no OoT case at
-    // all, the four below come from the oot-* builds' CZLE case in this same file. The
-    // return value is deliberately ignored: cpuSetCodeHack() reports failure for an address
-    // it already holds, and aCodeHack survives the switch, so from the second switch on
-    // these are all duplicates. Registering the other half's hacks is harmless either way --
-    // a hack only fires when the opcode it names really is the one in RAM. That last part
-    // also means these may simply never fire: the combo is built on OoT NTSC 1.0 while the
-    // oot-* channels ship 1.2, and the combo patches the game's code besides.
+    //TODO: research more about game-specific hacks
     cpuSetCodeHack(pCPU, 0x80062D64, 0x94639680, -1);
     cpuSetCodeHack(pCPU, 0x8006E468, 0x97040000, -1);
     cpuSetCodeHack(pCPU, 0x8005BB14, 0x9463D040, -1);

@@ -1,23 +1,20 @@
+#include "emulator/comboPerf.h"
 #include "emulator/cpu.h"
 #include "emulator/xlHeap.h"
 #include "macros.h"
 
-// Split out of cpu.c so this single function can be built from source and linked while
-// the rest of cpu.c still comes from the extracted object. See config/mm-j/splits.txt.
-
-// Defined in cpu.c; dtk gives every function it recovers global scope, so these resolve
-// across the split without any symbols.txt change.
 bool cpuSetCP0_Status(Cpu* pCPU, u64 nStatus, u32 unknown);
 bool cpuHackHandler(Cpu* pCPU);
 bool treeKill(Cpu* pCPU);
 
-// MM keeps the tree heap and its allocation bitmap as file-scope objects in cpu.c rather
-// than as Cpu members; they are named in config/mm-j/symbols.txt so this unit can reach
-// cpu.c's definitions instead of emitting its own.
 extern u32 gaHeapTreeFlag[125];
 extern void* gHeapTree;
 
-// Inlined into cpuReset by MWCC; travels with it.
+#if IS_MM && COMBO_FAULT_NAMER
+void comboFaultArm(Cpu* pCPU);
+#endif
+
+// Inlined into cpuReset
 static inline bool cpuHeapReset(u32* array, s32 count) {
     s32 i;
 
@@ -31,6 +28,10 @@ static inline bool cpuHeapReset(u32* array, s32 count) {
 bool cpuReset(Cpu* pCPU) {
     s32 iRegister;
     s32 iTLB;
+
+#if IS_MM && COMBO_FAULT_NAMER
+    comboFaultArm(pCPU); // first, so nothing can fault before the handler is in place
+#endif
 
     // MM's cpuReset does not clear nTick.
     pCPU->nCountCodeHack = 0;

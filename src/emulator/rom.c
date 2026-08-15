@@ -1,5 +1,6 @@
 #include "emulator/rom.h"
 #include "emulator/code_80083508.h"
+#include "emulator/comboPerf.h"
 #include "emulator/codeRVL.h"
 #include "emulator/cpu.h"
 #include "emulator/errordisplay.h"
@@ -42,8 +43,7 @@ s32 fn_80050AFC(void) { return lbl_80200740; }
 
 #define ROM_CACHE_MAX 0x02000000 // 32 MB
 
-#if IS_MM
-//! Debug only, see romCopy(). gComboTraceLeft lives in cpu_execute_jump.c.
+#if IS_MM && COMBO_DEBUG_HOOKS
 extern s32 gComboTraceLeft;
 static s32 gComboRomBeat = 0;
 #endif
@@ -112,6 +112,8 @@ static bool romFindOldestBlock(Rom* pROM, s32* piBlock, RomCacheType eTypeCache,
 
     nTick = pROM->nTick;
     nTickDeltaOldest = 0;
+
+    COMBO_PERF_ADD(nRomScan, ARRAY_COUNT(pROM->aBlock)); // loop below always walks the whole array
 
     for (iBlock = 0; iBlock < ARRAY_COUNT(pROM->aBlock); iBlock++) {
         pBlock = &pROM->aBlock[iBlock];
@@ -291,6 +293,8 @@ static bool romLoadBlock(Rom* pROM, s32 iBlock, s32 iCache, UnknownCallbackFunc 
     s32 nSizeRead;
     u32 nSize;
     u32 nOffset;
+
+    COMBO_PERF_BUMP(nRomBlocks); // one count per cache miss
 
     nOffset = iBlock * 0x2000;
     if ((nSize = pROM->nSize - nOffset) > 0x2000) {
@@ -554,7 +558,37 @@ static bool fn_80042C98(Rom* pROM) {
         simulatorShowLoad(1, pROM->acNameFile, (f32)(pROM->nSize - nSize) / (f32)pROM->nSize);
     }
 #elif IS_MM
-    fn_8008338C(pCacheRAM, SYSTEM_FRAME(gpSystem)->unk_20B0, 0x80000, fn_80051738, 0);
+    {
+        u32 nHeader;
+
+        if (!xlFileSetPosition(FILE_PTR, 0) || !xlFileGet(FILE_PTR, &nHeader, sizeof(nHeader))) {
+            return false;
+        }
+
+        if (ROM_IS_RAW(nHeader)) {
+            if (!xlFileSetPosition(FILE_PTR, 0)) {
+                return false;
+            }
+
+            nSize = pROM->nSize;
+
+            while (nSize > 0) {
+                nSizeBytes = nSize;
+                if (nSize > 0x80000) {
+                    nSizeBytes = 0x80000;
+                }
+
+                if (!xlFileGet(FILE_PTR, pCacheRAM, nSizeBytes)) {
+                    return false;
+                }
+
+                nSize -= nSizeBytes;
+                pCacheRAM = &pCacheRAM[nSizeBytes];
+            }
+        } else {
+            fn_8008338C(pCacheRAM, SYSTEM_FRAME(gpSystem)->unk_20B0, 0x80000, fn_80051738, 0);
+        }
+    }
 #endif
 
     if (!xlFileClose(&FILE_PTR)) {
@@ -934,11 +968,7 @@ bool romCopy(Rom* pROM, void* pTarget, s32 nOffset, s32 nSize, UnknownCallbackFu
 
     nOffset &= 0x07FFFFFF;
 
-#if IS_MM
-    //! Debug only. Armed by cpu_execute_jump.c on entry to the OoTMM switch stub. The
-    //! payload's raw PI DMA reaches romCopy through piPut32 -> fn_800166D0, and the PI busy
-    //! bit only clears once pCallback runs, so any path that returns without calling it wedges
-    //! the payload in waitForPi().
+#if IS_MM && COMBO_DEBUG_HOOKS
     if (gComboTraceLeft > 0) {
         OSReport("combo: romCopy off %08X size %08X cb %08X (romSize %08X cache %08X mode %d "
                  "bLoad %d)\n",
@@ -976,8 +1006,7 @@ bool romCopy(Rom* pROM, void* pTarget, s32 nOffset, s32 nSize, UnknownCallbackFu
     }
 
     if (((nOffset + nSize) > pROM->nSize) && ((nSize = pROM->nSize - nOffset) < 0)) {
-#if IS_MM
-        //! Debug only, see above: this is the one exit that drops pCallback silently.
+#if IS_MM && COMBO_DEBUG_HOOKS
         if (gComboTraceLeft > 0) {
             OSReport("combo: romCopy past end of image, callback dropped\n");
         }
@@ -1085,10 +1114,7 @@ bool romCopyImmediate(Rom* pROM, void* pTarget, s32 nOffsetROM, s32 nSize) {
 bool romUpdate(Rom* pROM) {
     s32 nStatus;
 
-#if IS_MM
-    //! Debug only, see romCopy(). Rate limited: cpuExecuteUpdate calls this on every
-    //! interpreted opcode, so the payload's poll loop reaches it millions of times. Shows
-    //! whether a pending copy/load is simply never completing.
+#if IS_MM && COMBO_DEBUG_HOOKS
     if (gComboTraceLeft > 0 && ++gComboRomBeat % 400000 == 0) {
         OSReport("combo: romUpdate copy(bWait %d off %08X size %08X) load(bWait %d bDone %d "
                  "result %08X read %08X iBlock %d)\n",
@@ -1205,6 +1231,14 @@ bool romSetImage(Rom* pROM, char* szNameFile) {
 #elif IS_MM
 static inline bool romSetImage_Inline(Rom* pROM, s32 nSize, bool bRaw) {
     s32 nHeapSize;
+
+    //! aBlock has one entry per 0x2000 of image with no bound of its own at
+    //! the indexing sites, so an oversized image writes past it. Clamp once per image load instead.
+    if ((u32)nSize > ROM_BLOCK_COUNT * 0x2000) {
+        OSReport("rom: image is %08X bytes, larger than the %08X aBlock covers -- truncating\n", nSize,
+                 ROM_BLOCK_COUNT * 0x2000);
+        nSize = ROM_BLOCK_COUNT * 0x2000;
+    }
 
     pROM->nSize = nSize;
     nHeapSize = ROUND_UP(pROM->nSize, 0x2000);

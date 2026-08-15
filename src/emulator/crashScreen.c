@@ -3,6 +3,7 @@
  *
  * Visual crash debugger.
  */
+#include "emulator/ram.h"
 #include "emulator/system.h"
 #include "emulator/vc64_RVL.h"
 #include "macros.h"
@@ -24,13 +25,27 @@ extern void fn_800AA390(void); // GXAbortFrame
 #define CT DECL_SECTION(".crashtext")
 #define CD DECL_SECTION(".crashdata")
 
-#define CRASH_REPORT_PAGE_MAX 4
+#define CRASH_REPORT_PAGE_MAX 5
 
 #define CRASH_N64_STACK_LINES 18
 #define CRASH_N64_SCAN_WORDS 2048
 #define CRASH_N64_RA_SCAN_WORDS 64
 #define CRASH_N64_RAM_LO 0x80000000
 #define CRASH_N64_RAM_HI 0x80800000
+
+// Guest frame dump on page 5: sp-0x10 .. sp+0x50, three words per line so a line still fits the
+// 40 columns CRASH_CHAR_W gives us at 640px.
+#define CRASH_N64_FRAME_FROM (-4)
+#define CRASH_N64_FRAME_TO 20
+#define CRASH_N64_FRAME_PER_LINE 3
+
+// Host address space, for deciding whether a register is safe to dereference.
+#define CRASH_HOST_LO 0x80000000
+#define CRASH_HOST_HI 0x81800000
+
+// Every link stub cpuMakeLink() carves is one 0x200 xlHeapTake block.
+#define CRASH_STUB_SIZE 0x200
+#define CRASH_IN_STUB(pf, n) ((pf) != NULL && (u32)(n) - (u32)(pf) < CRASH_STUB_SIZE)
 
 #define CRASH_SPLASH_SECONDS 4
 #define CRASH_PAGE_SECONDS 8
@@ -70,6 +85,18 @@ CD static const char kFmtN64GprPair[] = "\ns%-2d=%08x s%-2d=%08x";
 CD static const char kFmtN64Stack[] = "N64 STACK TRACE";
 CD static const char kFmtN64StackSp[] = "\nSP=%08x RA=%08x\n";
 CD static const char kFmtN64StackLine[] = "\n%08x: %08x";
+CD static const char kFmtClassJrRa[] = "\nCLASS jr-ra aGPR31=%08x";
+CD static const char kFmtClassStub[] = "\nCLASS stub %s+%x";
+CD static const char kFmtN64Frame[] = "N64 FRAME (guest sp)";
+CD static const char kFmtN64Mode[] = "\nmode=%08x wait=%08x call=%08x";
+CD static const char kFmtHeaps[] = "\nheap %08x %08x ram %08x";
+CD static const char kFmtN64FrameLine[] = "\n%08x: %08x %08x %08x";
+CD static const char kStubStep[] = "pfStep";
+CD static const char kStubJump[] = "pfJump";
+CD static const char kStubCall[] = "pfCall";
+CD static const char kStubIdle[] = "pfIdle";
+CD static const char kStubRam[] = "pfRam";
+CD static const char kStubRamF[] = "pfRamF";
 CD static const char kFmtFooter[] = "page %d/%d";
 CD static const char kFmtLogPage[] = "\n--- crash page %d/%d ---\n%s\n";
 CD static const char kFmtCount[] = "%d";
@@ -138,6 +165,9 @@ CT static bool CrashRecoverN64Ra(Cpu* pCPU, u32 gcnPtr, u32* pN64Ra);
 CT static u32 CrashN64TraceStart(Cpu* pCPU);
 CT static u32 CrashN64Sp(Cpu* pCPU, OSContext* ctx);
 CT static char* CrashN64Stack(Cpu* pCPU, OSContext* ctx, char* p, char* end);
+CT static const char* CrashStubName(Cpu* pCPU, u32 nHost, u32* pnOffset);
+CT static char* CrashFaultClass(Cpu* pCPU, OSContext* ctx, char* p, char* end);
+CT static char* CrashN64Frame(Cpu* pCPU, char* p, char* end);
 CT static void CrashBuildPages(OSContext* ctx, u32 dsisr, u32 dar);
 CT static void CrashClear(u16* fb);
 CT static void CrashFillRect(u16* fb, s32 x, s32 y, s32 w, s32 h, u16 color);
@@ -353,8 +383,116 @@ CT static char* CrashN64Stack(Cpu* pCPU, OSContext* ctx, char* p, char* end) {
 }
 
 /**
+ * @brief Which of cpuMakeLink's six link stubs contains `nHost`, if any, and how far into it.
+ *
+ * Each stub is its own 0x200 xlHeapTake block, so containment is exact rather than a heuristic.
+ */
+CT static const char* CrashStubName(Cpu* pCPU, u32 nHost, u32* pnOffset) {
+    const char* szName = NULL;
+    u32 nBase = 0;
+
+    if (CRASH_IN_STUB(pCPU->pfStep, nHost)) {
+        szName = kStubStep;
+        nBase = (u32)pCPU->pfStep;
+    } else if (CRASH_IN_STUB(pCPU->pfJump, nHost)) {
+        szName = kStubJump;
+        nBase = (u32)pCPU->pfJump;
+    } else if (CRASH_IN_STUB(pCPU->pfCall, nHost)) {
+        szName = kStubCall;
+        nBase = (u32)pCPU->pfCall;
+    } else if (CRASH_IN_STUB(pCPU->pfIdle, nHost)) {
+        szName = kStubIdle;
+        nBase = (u32)pCPU->pfIdle;
+    } else if (CRASH_IN_STUB(pCPU->pfRam, nHost)) {
+        szName = kStubRam;
+        nBase = (u32)pCPU->pfRam;
+    } else if (CRASH_IN_STUB(pCPU->pfRamF, nHost)) {
+        szName = kStubRamF;
+        nBase = (u32)pCPU->pfRamF;
+    }
+
+    if (szName != NULL) {
+        *pnOffset = nHost - nBase;
+    }
+    return szName;
+}
+
+/**
+ * @brief Names the mechanism behind a branch to a bad address, so the register dump does not have
+ * to be decoded by hand every time. Two shapes produce `SRR0 = LR = 0`, and they need opposite
+ * fixes:
+ *
+ * - **jr-ra**: `$ra` is unmapped in `ganMapGPR`, so cpuGetPPC's `jr` case emits
+ *   `lwz r5,aGPR[31]+4(r3)` / `mtlr r5` / `blr`. `SRR0 == LR == r5 == aGPR[31]` is that sequence
+ *   and nothing else -- the guest's `$ra` itself is bad.
+ * - **stub**: cpuMakeLink's stub ends `mtlr r3` / restore / `blr` **without testing r3**, so any
+ *   helper returning false becomes a fetch from 0. The helper saved its own return point -- which
+ *   lands inside the stub -- at caller_sp+4 and usually still has it in r0, so naming the stub that
+ *   return point belongs to names the helper.
+ */
+CT static char* CrashFaultClass(Cpu* pCPU, OSContext* ctx, char* p, char* end) {
+    const char* szStub;
+    u32 nOffset = 0;
+    u32* sp;
+
+    if (pCPU == NULL) {
+        return p;
+    }
+
+    if (ctx->srr0 == ctx->lr && ctx->gprs[5] == ctx->srr0 && ctx->srr0 == pCPU->aGPR[31].u32) {
+        return CrashAppend(p, end, kFmtClassJrRa, pCPU->aGPR[31].u32);
+    }
+
+    sp = (u32*)ctx->gprs[1];
+    if ((u32)sp >= CRASH_HOST_LO && (u32)sp < CRASH_HOST_HI && ((u32)sp & 3) == 0 &&
+        (szStub = CrashStubName(pCPU, sp[1], &nOffset)) != NULL) {
+        return CrashAppend(p, end, kFmtClassStub, szStub, nOffset);
+    }
+    if ((szStub = CrashStubName(pCPU, ctx->gprs[0], &nOffset)) != NULL) {
+        return CrashAppend(p, end, kFmtClassStub, szStub, nOffset);
+    }
+
+    return p;
+}
+
+/**
+ * @brief Guest words around `$sp`. This is the discriminator for a bad `$ra`: if the saved-`$ra`
+ * slot in the frame already holds the same bad value, guest memory was corrupted; if it still holds
+ * a host code-cache pointer, `aGPR[31]` was lost after a good load and the bug is in codegen.
+ */
+CT static char* CrashN64Frame(Cpu* pCPU, char* p, char* end) {
+    u32 sp = pCPU->aGPR[29].u32;
+    s32 iWord;
+
+    p = CrashAppend(p, end, kFmtN64Mode, pCPU->nMode, pCPU->nWaitPC, pCPU->nCallLast);
+
+    // Without these the frame words cannot be classified: a saved `$ra` is a host code-cache pointer,
+    // and the heaps sit in MEM1 *below* the guest RAM buffer, so they look like plausible guest
+    // addresses. `ram` is that buffer, i.e. the boundary and the recompiler's ramOffset base.
+    p = CrashAppend(p, end, kFmtHeaps, (u32)pCPU->gHeap1, (u32)pCPU->gHeap2,
+                    (u32)SYSTEM_RAM(gpSystem)->pBuffer);
+
+    for (iWord = CRASH_N64_FRAME_FROM; iWord < CRASH_N64_FRAME_TO; iWord += CRASH_N64_FRAME_PER_LINE) {
+        u32 anWord[CRASH_N64_FRAME_PER_LINE];
+        u32 nAddress = sp + iWord * 4;
+        s32 i;
+
+        for (i = 0; i < CRASH_N64_FRAME_PER_LINE; i++) {
+            anWord[i] = 0;
+            if (CrashN64Plausible(nAddress + i * 4)) {
+                CrashN64Read(pCPU, nAddress + i * 4, &anWord[i]);
+            }
+        }
+
+        p = CrashAppend(p, end, kFmtN64FrameLine, nAddress, anWord[0], anWord[1], anWord[2]);
+    }
+
+    return p;
+}
+
+/**
  * @brief Fills sCrashPage[0..sCrashPageCount-1]: exception summary + Wii r0-r15, then Wii
- * r16-r31 + back chain, then N64 CPU state.
+ * r16-r31 + back chain, then N64 CPU state, then the guest frame.
  */
 CT static void CrashBuildPages(OSContext* ctx, u32 dsisr, u32 dar) {
     char* p;
@@ -365,6 +503,7 @@ CT static void CrashBuildPages(OSContext* ctx, u32 dsisr, u32 dar) {
     Cpu* pCPU;
 
     sCrashPageCount = 0;
+    pCPU = (gpSystem != NULL) ? SYSTEM_CPU(gpSystem) : NULL;
 
     p = sCrashPage[sCrashPageCount];
     end = p + sizeof(sCrashPage[0]);
@@ -372,6 +511,7 @@ CT static void CrashBuildPages(OSContext* ctx, u32 dsisr, u32 dar) {
     p = CrashAppend(p, end, kFmtSrr, ctx->srr0, ctx->srr1);
     p = CrashAppend(p, end, kFmtLr, ctx->lr);
     p = CrashAppend(p, end, kFmtDar, dar, dsisr);
+    p = CrashFaultClass(pCPU, ctx, p, end);
     p = CrashAppend(p, end, kFmtWiiGpr);
     for (i = 0; i < 16; i += 2) {
         p = CrashAppend(p, end, kFmtGprPair, i, ctx->gprs[i], i + 1, ctx->gprs[i + 1]);
@@ -391,7 +531,7 @@ CT static void CrashBuildPages(OSContext* ctx, u32 dsisr, u32 dar) {
     }
     sCrashPageCount++;
 
-    if (gpSystem != NULL && (pCPU = SYSTEM_CPU(gpSystem)) != NULL) {
+    if (pCPU != NULL) {
         p = sCrashPage[sCrashPageCount];
         end = p + sizeof(sCrashPage[0]);
         p = CrashAppend(p, end, kFmtN64);
@@ -411,6 +551,13 @@ CT static void CrashBuildPages(OSContext* ctx, u32 dsisr, u32 dar) {
         end = p + sizeof(sCrashPage[0]);
         p = CrashAppend(p, end, kFmtN64Stack);
         p = CrashN64Stack(pCPU, ctx, p, end);
+        sCrashPageCount++;
+
+        // Raw guest frame, see CrashN64Frame.
+        p = sCrashPage[sCrashPageCount];
+        end = p + sizeof(sCrashPage[0]);
+        p = CrashAppend(p, end, kFmtN64Frame);
+        p = CrashN64Frame(pCPU, p, end);
         sCrashPageCount++;
     }
 }

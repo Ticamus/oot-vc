@@ -66,7 +66,10 @@ emulator/cpu_execute_update.c:
 	.text       start:0x8003C8C0 end:0x8003CBF0
 
 emulator/cpu_2.c:
-	.text       start:0x8003CBF0 end:0x80048938
+	.text       start:0x8003CBF0 end:0x80048838
+
+emulator/cpu_execute_idle.c:
+	.text       start:0x80048838 end:0x80048938
 
 emulator/cpu_execute_jump.c:
 	.text       start:0x80048938 end:0x800489F4

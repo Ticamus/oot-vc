@@ -312,16 +312,15 @@ config.libs = [
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/mi.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/disk.c"),
             Object(NotLinked, "emulator/cpu.c"),
-            # 2 instructions off (commutative addc operand order), linked anyway: the
-            # OoTMM combo game switch needs its gTree == NULL guard.
+            # 2 instructions off (commutative addc operand order)
             Object(LinkedFor("mm-j"), "emulator/cpu_execute_update.c"),
             Object(NotLinked, "emulator/cpu_2.c"),
+            # Needed because of ROM_BLOCK_COUNT modification
+            Object(LinkedFor("mm-j"), "emulator/cpu_execute_idle.c"),
             Object(LinkedFor("mm-j"), "emulator/cpu_execute_jump.c"),
             Object(NotLinked, "emulator/cpu_3.c"),
             Object(LinkedFor("mm-j"), "emulator/cpu_reset.c"),
             Object(NotLinked, "emulator/cpu_4.c"),
-            # Carved so the OoTMM combo can teach the function-boundary scanner about GCC-style
-            # tail calls; see COMBO_TAIL_CALL in the file.
             Object(LinkedFor("mm-j"), "emulator/cpu_find_function.c"),
             Object(NotLinked, "emulator/cpu_5.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/pif.c"),
@@ -335,20 +334,13 @@ config.libs = [
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/_frameGCNcc.c"),
             Object(NotLinked, "emulator/_buildtev.c"),
             Object(NotLinked, "emulator/frame.c"),
-            # mm-j: frameBeginOK carved out to see when rspUpdate refuses a task setup.
             Object(LinkedFor("mm-j"), "emulator/frame_begin_ok.c"),
             Object(NotLinked, "emulator/frame_1b.c"),
-            # mm-j: frameHackTIMG_Zelda carved out of frame.c so OoT's pause-menu capture can be
-            # added to it. Byte-identical to oot-j's, unlike the rest of that TU.
             Object(LinkedFor("mm-j"), "emulator/frame_hack_timg.c"),
             Object(NotLinked, "emulator/frame_2.c"),
-            # mm-j: frameSetBuffer carved out so OoT's equipment-subscreen Link portrait can be
-            # resolved there. Its FBT_COLOR_DRAW branch is empty in retail, and G_SETCIMG is the
-            # moment the hack needs.
             Object(LinkedFor("mm-j"), "emulator/frame_set_buffer.c"),
             Object(NotLinked, "emulator/frame_2b.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/library.c"),
-            # mm-j: osViSwapBuffer_Entry carved out to instrument the HLE frame-complete signal.
             Object(LinkedFor("mm-j"), "emulator/library_swap.c"),
             Object(NotLinked, "emulator/library_2.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/codeRVL.c"),
@@ -361,13 +353,9 @@ config.libs = [
             Object(NotLinked, "emulator/store.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/controller.c", mw_version="GC/3.0a5.2"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/errordisplay.c"),
-            # New code (no retail counterpart): the visual crash debugger, shown from
-            # __OSUnhandledException (see OSError.c). extra_unit links it without a retail
-            # split unit; -sdata/-sdata2 0 plus the file's section pragmas keep every byte in
-            # private .crashtext/.crashdata/.crashbss sections, which the custom ldscript
-            # template places after .sbss2 so no retail section address moves. mm-j only for
-            # now (its config.yml carries the matching ldscript_template).
             Object(LinkedFor("mm-j"), "emulator/crashScreen.c", extra_unit=True,
+                   extra_cflags=["-sdata 0", "-sdata2 0"]),
+            Object(LinkedFor("mm-j"), "emulator/comboPerf.c", extra_unit=True,
                    extra_cflags=["-sdata 0", "-sdata2 0"]),
             Object(LinkedFor("oot-j", "oot-u"), "emulator/banner.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/stringtable.c"),
@@ -375,7 +363,6 @@ config.libs = [
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/rsp.c"),
             Object(LinkedFor("mm-j"), "emulator/rspGet32.c"),
             Object(NotLinked, "emulator/rsp_2.c"),
-            # mm-j: rspUpdate carved out to instrument the RSP task/frame pairing.
             Object(LinkedFor("mm-j"), "emulator/rsp_update.c"),
             Object(NotLinked, "emulator/rsp_3.c"),
             Object(NotLinked, "emulator/rdp.c"),

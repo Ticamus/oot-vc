@@ -153,7 +153,7 @@ void __OSUnhandledException(u8 error, OSContext* ctx, u32 dsisr, u32 dar) {
         OSReport("Unhandled Exception %d", error);
     }
 
-#if IS_MM
+#if IS_MM && COMBO_CRASH_SCREEN
     // See crashScreen.h
     switch (CrashScreenEnter()) {
         case 0:
@@ -207,7 +207,7 @@ void __OSUnhandledException(u8 error, OSContext* ctx, u32 dsisr, u32 dar) {
     OSReport("\nLast interrupt (%d): SRR0 = 0x%08x  TB = 0x%016llx\n", __OSLastInterrupt, __OSLastInterruptSrr0,
              __OSLastInterruptTime);
 
-#if IS_MM
+#if IS_MM && COMBO_CRASH_SCREEN
     CrashScreenShow();
 #else
     PPCHalt();
