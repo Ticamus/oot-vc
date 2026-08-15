@@ -1,4 +1,5 @@
 #include "emulator/cpu.h"
+#include "emulator/comboPerf.h"
 #include "emulator/ram.h"
 #include "revolution/os/OSError.h"
 #include "emulator/rom.h"
@@ -23,61 +24,36 @@ extern s32 lbl_801FFF60;
 extern void fn_80054B64(s32 arg0);
 extern void fn_80085C84(void* pHelp);
 
-#if IS_MM
-//! Debug only. Armed by cpu_execute_jump.c when the OoTMM switch stub is entered. This
-//! function is the one hook the whole interpreter funnels through -- cpuExecuteOpcode,
-//! cpuExecuteCall and cpuExecuteIdle all call it -- so it sees the interpreted `cache` and
-//! MMIO opcodes and the direct `jal`s that never reach pfJump.
-//!
-//! Consecutive PCs inside one small region collapse into a single line with a hit count, so a
-//! polling loop shows up as one entry rather than flooding the log. COMBO_TRACE_BEAT then
-//! keeps printing while the guest stays in that region: heartbeats still arriving means it is
-//! spinning on an interpreted opcode, silence means it left the interpreter for good and is
-//! stuck inside a recompiled block.
+#if IS_MM && COMBO_DEBUG_HOOKS
+// Debug only. Armed by cpu_execute_jump.c on OoTMM switch entry; every interpreter hook funnels
+// through this function.
 #define COMBO_TRACE_REGION 0x40
 #define COMBO_TRACE_BEAT 200000
 extern s32 gComboTraceLeft;
 static s32 gComboTracePC = 0;
 static s32 gComboTraceHits = 0;
+#endif
 
-//! REMOVED, along with the guest heartbeat, the guest-code dump and the __osActiveQueue thread
-//! walker. They did their job -- they are what established that every OoT thread parks in osRecvMesg
-//! while only libultra's VI manager and the idle thread run, and the frames-closed counter is what
-//! finally separated a frozen guest from a healthy instant. Keeping them costs a dozen format strings
-//! and several globals in a TU whose split claims only .text, and that footprint is the one thing
-//! that grew between a build that boots cleanly and one the console reports as corrupted memory.
-//! Reinstate from git history if the guest side needs watching again.
-
-//! Not in the original game. Half of the cure for the OoT pause freeze; the other half is the orphan
-//! recovery in rsp_update.c. Full write-up in docs/ootmm_pause_freeze.md -- read that before touching
-//! either, because five earlier attempts at this fault were wrong in instructive ways.
-//!
-//! In short: retail rspParseGBI_F3DEX2 copies display-list data into `pDMEM + ((word >> 3) & 0xFF8)`
-//! with a display-list-supplied length and no bound (0x8006F318 and five siblings), and 0xFC0 is where
-//! libultra keeps the OSTask descriptor. OoT's pause menu drives that path; MM's own lists never do.
-//! rspPut32 then reads OSTask.type from there, finds garbage, and bails through .L_80070F80 with the
-//! halt bit already cleared and nothing dispatched, so the guest waits on a task nobody owns.
-//!
-//! Only `type` is actually lost to the emulator -- rspParseGBI_Setup reads just +0x30 and rspFindUCode
-//! +0x10..+0x1C, all of which survive -- but the whole sixty-four bytes are restored anyway, because the
-//! correct source is right there: the guest's own OSTask in RDRAM, which the parser never touches.
-//!
-//! This function is the right home for it. It runs inside the guest on every interpreted opcode, MMIO
-//! access and block boundary, thousands of times a frame, so the descriptor is normally back before the
-//! guest's next SP_STATUS write reaches rspPut32. Normally, not always: that read happens inside the
-//! guest's own store and there is no hook between the two, which is exactly why rsp_update.c has to
-//! recover the tasks that slip through.
+#if IS_MM
+// Fixes the OoT pause freeze together with the orphan recovery in rsp_update.c. 
+// retail rspParseGBI_F3DEX2 copies display-list data into
+// pDMEM+0xFC0 with an unbounded length, and 0xFC0 is where libultra keeps the OSTask descriptor.
+// OoT's pause menu drives that path and can trample it. The fix restores the descriptor from the
+// guest's own OSTask in RDRAM, which the parser never touches.
 #define COMBO_REPAIR_TASK 1
 
-//! RDRAM address of the guest's own OSTask, captured from the descriptor load's DMA parameters, and the
-//! authoritative source for a repair. Global so rsp_update.c can decide what to dispatch from the same
-//! source rather than trusting whatever is left in DMEM -- an earlier version trusted a DMEM snapshot,
-//! which was always one task behind, and dispatched the wrong one.
+// Only OoT's display lists trample the descriptor, so retail mm-j should not get a repair.
+#define COMBO_REPAIR_ARMED(pCPU) gIsOotmmCombo
+
+// Shadow is only read once the authoritative RDRAM source is unknown.
+#define COMBO_SHADOW_WANTED(pRSP) (gComboTaskRamAddr == 0 && (pRSP)->nAddressSP == 0xFC0)
+
+// RDRAM address of the guest's own OSTask, captured from the descriptor load's DMA parameters.
+// Global so rsp_update.c can dispatch from the same source instead of a DMEM snapshot.
 u32 gComboTaskRamAddr;
 
-//! Fallback for the window before any descriptor load has been seen. Initialised, so it lands in .data
-//! rather than .bss: a TU whose split claims only .text must not add .bss, that inserts into the pinned
-//! layout and corrupts save data at startup.
+// Fallback for the window before any descriptor load has been seen. Initialised, so it lands in
+// .data rather than .bss: this TU's split claims only .text.
 u32 gComboShadowTask[16] = {1};
 bool gComboShadowValid;
 #endif
@@ -85,28 +61,29 @@ bool gComboShadowValid;
 #define CPU_SYSTEM(pCPU) ((System*)(pCPU)->pSystem)
 
 #if IS_MM
-//! Debug only. A fault inside recompiled code reports a host PC in the code cache, which says nothing
-//! about the guest. This names the guest function instead, by scanning the function tree for the node
-//! whose compiled code contains SRR0, then dumping the guest words around both ends of its bounds. It
-//! **uninstalls itself** before returning: the OS reloads the faulting context afterwards, so the same
-//! instruction faults again immediately and the default handler prints the usual full dump the second
-//! time. All storage initialised, so none of it lands in .bss (this TU's split claims only .text).
+// A fault in recompiled code reports a host code-cache PC, which says nothing about the guest.
+// comboFaultNamer names the guest function instead, and uninstalls itself before returning so the
+// default handler still prints its usual dump on the re-fault.
 Cpu* gComboCpu = (Cpu*)-1;
-s32 gComboFaultArmed = -1;
 
-//! Debug only. Bounded, initialised so it lands in .data. See the stack check in cpuExecuteUpdate.
-s32 gComboBadStackLeft = 4;
+#if COMBO_DEBUG_HOOKS
+s32 gComboBadStackLeft = 4;   // debug only, bounded; see the stack check in cpuExecuteUpdate
+s32 gComboRaProbeLeft = 12;   // debug only, bounded; see the saved-$ra slot probe in cpuExecuteUpdate
+s32 gComboMergedLeft = 2;     // debug only, bounded; see the merged-node alarm in cpuExecuteUpdate
+#endif
 
+#if COMBO_FAULT_NAMER
 static CpuFunction* comboFindByHostNode(CpuFunction* pNode, u32 nHost, s32 nDepth) {
     CpuFunction* pFound;
 
-    // Bounded: this runs inside an exception, and a corrupt tree must not take the handler with it.
-    // 400 not 64: the function tree is a BST keyed on nAddress0 and inserts largely in address order, so
-    // it is badly skewed and a legitimate node can sit far deeper than a balanced log2(N) -- a too-small
-    // cap made comboFindByHost miss real nodes and report "not in any compiled function" wrongly.
+    // Bounded so a corrupt tree can't take the exception handler with it. 400 not 64: the tree is
+    // a BST keyed on nAddress0 and inserts roughly in address order, so it's skewed well past a
+    // balanced log2(N).
     if (pNode == NULL || nDepth > 400) {
         return NULL;
     }
+
+    COMBO_PERF_BUMP(nHostNodes);
 
     if (pNode->pfCode != NULL && nHost >= (u32)pNode->pfCode &&
         nHost < (u32)pNode->pfCode + (u32)pNode->memory_size) {
@@ -119,8 +96,7 @@ static CpuFunction* comboFindByHostNode(CpuFunction* pNode, u32 nHost, s32 nDept
     return comboFindByHostNode(pNode->right, nHost, nDepth + 1);
 }
 
-//! Debug only. The compiled function whose host code starts closest below nHost, for when exact
-//! containment fails -- it names what the fault is just past, which a bare "not found" cannot.
+// The compiled function whose host code starts closest below nHost, for when exact containment fails.
 static void comboFindNearestBelowNode(CpuFunction* pNode, u32 nHost, s32 nDepth, CpuFunction** ppBest) {
     if (pNode == NULL || nDepth > 400) {
         return;
@@ -133,8 +109,10 @@ static void comboFindNearestBelowNode(CpuFunction* pNode, u32 nHost, s32 nDepth,
     comboFindNearestBelowNode(pNode->right, nHost, nDepth + 1, ppBest);
 }
 
-//! Which compiled function, if any, owns a host address.
-CpuFunction* comboFindByHost(Cpu* pCPU, u32 nHost) {
+// Which compiled function, if any, owns a host address. Only the fault namer uses this; see
+// comboHostIsCode below for the hot-path predicate that replaced it elsewhere.
+#pragma dont_inline on
+static CpuFunction* comboFindByHost(Cpu* pCPU, u32 nHost) {
     CpuFunction* pFound;
 
     if (pCPU == NULL || pCPU == (Cpu*)-1 || pCPU->gTree == NULL) {
@@ -145,6 +123,48 @@ CpuFunction* comboFindByHost(Cpu* pCPU, u32 nHost) {
         return pFound;
     }
     return comboFindByHostNode(pCPU->gTree->right, nHost, 0);
+}
+#pragma dont_inline off
+#endif
+
+// Sizes of the two block heaps cpuHeapTake carves code from, and their block strides.
+#define COMBO_HEAP1_BLOCK 0x200
+#define COMBO_HEAP2_BLOCK 0xA00
+#define COMBO_HEAP1_SPAN (ARRAY_COUNT(((Cpu*)0)->aHeap1Flag) * 32 * COMBO_HEAP1_BLOCK)
+#define COMBO_HEAP2_SPAN (ARRAY_COUNT(((Cpu*)0)->aHeap2Flag) * 32 * COMBO_HEAP2_BLOCK)
+
+// Replaces the O(N) tree walk cpu_execute_jump.c used to do on every out-of-RDRAM indirect jump.
+// pfCode is a block-heap base and aHeap1Flag/aHeap2Flag say which blocks are allocated, so "inside
+// an allocated code block" is a couple of compares and a bit test. A heapID-3 chunk (too large for
+// either block heap) falls back to the walk.
+bool comboHostIsCode(Cpu* pCPU, u32 nHost) {
+    u32 nOffset;
+    u32 iBlock;
+
+    if (pCPU == NULL || pCPU == (Cpu*)-1) {
+        return false;
+    }
+
+    if (pCPU->gHeap1 != NULL && (nOffset = nHost - (u32)pCPU->gHeap1) < COMBO_HEAP1_SPAN) {
+        iBlock = nOffset / COMBO_HEAP1_BLOCK;
+        return (pCPU->aHeap1Flag[iBlock >> 5] & (1 << (iBlock & 31))) != 0;
+    }
+
+    if (pCPU->gHeap2 != NULL && (nOffset = nHost - (u32)pCPU->gHeap2) < COMBO_HEAP2_SPAN) {
+        iBlock = nOffset / COMBO_HEAP2_BLOCK;
+        return (pCPU->aHeap2Flag[iBlock >> 5] & (1 << (iBlock & 31))) != 0;
+    }
+
+    if (((nHost ^ (u32)pCPU->gHeap1) & 0xFF000000) == 0 || ((nHost ^ (u32)pCPU->gHeap2) & 0xFF000000) == 0) {
+        COMBO_PERF_BUMP(nHostSlow);
+#if COMBO_FAULT_NAMER
+        return comboFindByHost(pCPU, nHost) != NULL;
+#else
+        return false;
+#endif
+    }
+
+    return false;
 }
 
 static void comboDumpGuest(s32 nGuest, s32 nFromWord, s32 nToWord, Ram* pRAM) {
@@ -164,10 +184,7 @@ static void comboDumpGuest(s32 nGuest, s32 nFromWord, s32 nToWord, Ram* pRAM) {
     }
 }
 
-//! Debug only. The guest register file at the last block boundary. A near-null DAR (a small offset off a
-//! zeroed base) is a bad pointer in some GPR, and this is what names it. The values are as of the last
-//! boundary, not the faulting instruction -- the recompiler runs many guest ops between boundaries -- but
-//! for a fault a few instructions into a block that is close enough to spot the offender.
+#if COMBO_FAULT_NAMER
 static void comboDumpGPR(Cpu* pCPU) {
     static const char* asName[32] = {"r0", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2",
                                      "t3", "t4", "t5", "t6", "t7", "s0", "s1", "s2", "s3", "s4", "s5",
@@ -231,18 +248,66 @@ static void comboFaultNamer(u8 nError, OSContext* pContext, u32 nDSISR, u32 nDAR
                      pCaller->nAddress1, pCPU->aGPR[31].u32 - (u32)pCaller->pfCode);
         } else {
             OSReport("combo:   ra %08X not resolved\n", pCPU->aGPR[31].u32);
+            comboDumpGuest(pCPU->aGPR[31].u32, -8, 8, pRAM);
         }
     }
 
     comboDumpGPR(pCPU);
     comboDumpGuest(pCPU->nPC, -8, 16, pRAM);
+    comboDumpGuest(pCPU->aGPR[29].u32, 0, 24, pRAM);
 }
+
+// Installs comboFaultNamer and publishes the Cpu it reports on. Called from cpuReset.
+void comboFaultArm(Cpu* pCPU) {
+    gComboCpu = pCPU;
+    OSSetErrorHandler(OS_ERR_DSI, (OSErrorHandler)comboFaultNamer);
+    OSSetErrorHandler(OS_ERR_ALIGNMENT, (OSErrorHandler)comboFaultNamer);
+    OSSetErrorHandler(OS_ERR_PROGRAM, (OSErrorHandler)comboFaultNamer);
+}
+#endif
+
+#if COMBO_DEBUG_HOOKS
+s32 gComboRaZeroLeft = 8; // debug only, bounded; see comboProbeRaZero
+#endif
 
 extern s32 gComboFindAddr;
 extern s32 gComboFindReason;
 extern s32 gComboFindStart;
 extern s32 gComboFindEnd;
 extern s32 gComboFindStop;
+
+// One guest word out of RDRAM, or 0 when the address is not backed by it.
+static u32 comboGuestWord(Ram* pRAM, u32 nGuest) {
+    u32 nOffset = nGuest & 0x1FFFFFFF;
+
+    if (pRAM == NULL || pRAM->pBuffer == NULL || (nGuest & 3) != 0 || nOffset + 4 > (u32)pRAM->nSize) {
+        return 0;
+    }
+    return *(u32*)(pRAM->pBuffer + nOffset);
+}
+
+// Bounded probe for the OoTMM "Farore's Wind" crash: `jr $ra` executed with aGPR[31] == 0, which
+// becomes a host branch to address 0 with no trail back to the branching site. A return address of
+// 0 is never legitimate, so report the first boundaries where it's already 0, with the executing
+// function named.
+#if COMBO_DEBUG_HOOKS
+#pragma dont_inline on
+static void comboProbeRaZero(Cpu* pCPU, Ram* pRAM) {
+    CpuFunction* pFunction = pCPU->pFunctionLast;
+    u32 nEntry = pCPU->nPC - 4;
+
+    gComboRaZeroLeft--;
+    OSReport("combo: ra==0 at pc %08X retlast %08X calllast %08X sp %08X mode %08X fn %08X..%08X\n", pCPU->nPC,
+             pCPU->nReturnAddrLast, pCPU->nCallLast, pCPU->aGPR[29].u32, pCPU->nMode,
+             pFunction != NULL ? pFunction->nAddress0 : 0, pFunction != NULL ? pFunction->nAddress1 : 0);
+
+    OSReport("combo:   entry %08X: %08X %08X %08X\n", nEntry, comboGuestWord(pRAM, nEntry),
+             comboGuestWord(pRAM, nEntry + 4), comboGuestWord(pRAM, nEntry + 8));
+
+    comboDumpGuest(pCPU->aGPR[29].u32, 0, 16, pRAM);
+}
+#pragma dont_inline off
+#endif
 
 static void comboLogUpdateFail(Cpu* pCPU, s32 nSite) {
     OSReport("combo: cpuExecuteUpdate FAILED site %d, pc %08X mode %08X isMM %d retrace %d/%d treeMem %d\n",
@@ -265,6 +330,60 @@ static void comboLogUpdateFail(Cpu* pCPU, s32 nSite) {
         comboDumpGuest(pCPU->nPC, -16, 32, SYSTEM_RAM((System*)pCPU->pSystem));
     }
 }
+
+// Kept out of line so `-inline auto` doesn't pull these back into cpuExecuteUpdate and cost its
+// register budget.
+#pragma dont_inline on
+
+// Fallback snapshot of a valid in-DMEM descriptor, for the window before gComboTaskRamAddr is known.
+static void comboShadowTask(Rsp* pRSP) {
+    u32* pnTask = (u32*)(pRSP->pDMEM + 0xFC0);
+    s32 iWord;
+
+    for (iWord = 0; iWord < 16; iWord++) {
+        gComboShadowTask[iWord] = pnTask[iWord];
+    }
+
+    gComboShadowValid = true;
+    COMBO_PERF_BUMP(nShadow);
+}
+
+// Put the descriptor back from the guest's own OSTask in RDRAM, or from the snapshot if that is not
+// available yet. Reached when OSTask.type in DMEM is outside 1..7, i.e. the parser overwrote it.
+static void comboRepairTask(Cpu* pCPU, Rsp* pRSP) {
+    u32* pnTask = (u32*)(pRSP->pDMEM + 0xFC0);
+    u32* pnSource = NULL;
+    Ram* pRAM = SYSTEM_RAM((System*)pCPU->pSystem);
+    s32 iWord;
+
+    if (pRAM != NULL && pRAM->pBuffer != NULL && gComboTaskRamAddr != 0 &&
+        gComboTaskRamAddr + 0x40 <= pRAM->nSize) {
+        u32* pnGuest = (u32*)(pRAM->pBuffer + gComboTaskRamAddr);
+
+        if ((u32)(pnGuest[0] - 1) <= 6) {
+            pnSource = pnGuest;
+        }
+    }
+
+    if (pnSource == NULL && gComboShadowValid) {
+        COMBO_PERF_BUMP(nShadowUsed);
+        pnSource = gComboShadowTask;
+    }
+
+    if (pnSource != NULL) {
+        for (iWord = 0; iWord < 16; iWord++) {
+            pnTask[iWord] = pnSource[iWord];
+        }
+
+        COMBO_PERF_BUMP(nRepairs);
+
+        if (pCPU->isMM) {
+            COMBO_PERF_BUMP(nRepairsMM);
+        }
+    }
+}
+
+#pragma dont_inline off
 #endif
 
 static inline s32 treeMemory(Cpu* pCPU) {
@@ -303,12 +422,39 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
     pSystem = CPU_SYSTEM(pCPU);
 
 #if IS_MM
-    gComboCpu = pCPU;
-    if (gComboFaultArmed < 0) {
-        gComboFaultArmed = 1;
-        OSSetErrorHandler(OS_ERR_DSI, (OSErrorHandler)comboFaultNamer);
-        OSSetErrorHandler(OS_ERR_ALIGNMENT, (OSErrorHandler)comboFaultNamer);
-        OSSetErrorHandler(OS_ERR_PROGRAM, (OSErrorHandler)comboFaultNamer);
+    COMBO_PERF_BUMP(nBoundaries);
+#endif
+
+#if IS_MM && COMBO_DEBUG_HOOKS
+    // Debug only, bounded. Validates the COMBO_TAIL_CALL_TARGET fix in cpu_find_function.c: the
+    // payload helper at 0x8074EC14 must be the start of its own node, not merely contained by a
+    // merged one.
+    if (gComboMergedLeft > 0 && pCPU->pFunctionLast != NULL && pCPU->pFunctionLast->nAddress0 < 0x8074EC14 &&
+        pCPU->pFunctionLast->nAddress1 > 0x8074EC14) {
+        gComboMergedLeft--;
+        OSReport("combo: node %08X..%08X still swallows 8074EC14, boundary fix did not take\n",
+                 pCPU->pFunctionLast->nAddress0, pCPU->pFunctionLast->nAddress1);
+    }
+
+    // Debug only, bounded. Tracks when the saved-$ra slot of the payload helper at 0x8074EC14 gets
+    // corrupted, by walking guest sp+0x44 forward across the helper's four `jal`s.
+    if (gComboRaProbeLeft > 0 &&
+        (pCPU->nReturnAddrLast == 0x8074EC38 || pCPU->nReturnAddrLast == 0x8074EC64 ||
+         pCPU->nReturnAddrLast == 0x8074EC80 || pCPU->nReturnAddrLast == 0x8074ECA0)) {
+        Ram* pRAM = SYSTEM_RAM(pSystem);
+        u32 nSlotAddr = (pCPU->aGPR[29].u32 + 0x44) & 0x1FFFFFFF;
+        u32 nSlot = 0;
+
+        if (pRAM != NULL && pRAM->pBuffer != NULL && nSlotAddr + 4 <= (u32)pRAM->nSize) {
+            nSlot = *(u32*)(pRAM->pBuffer + nSlotAddr);
+        }
+
+        if (gComboRaProbeLeft == 12 || nSlot < 0x80800000) {
+            gComboRaProbeLeft--;
+            OSReport("combo: ra probe slot %08X retlast %08X ra %08X sp %08X fn %08X\n", nSlot,
+                     pCPU->nReturnAddrLast, pCPU->aGPR[31].u32, pCPU->aGPR[29].u32,
+                     pCPU->pFunctionLast != NULL ? pCPU->pFunctionLast->nAddress0 : 0);
+        }
     }
 
     if (gComboBadStackLeft > 0 && (pCPU->aGPR[29].u32 < 0x80000000 || pCPU->aGPR[29].u32 >= 0x80800000)) {
@@ -329,52 +475,35 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
             OSReport("combo: still around %08X, x%d\n", pCPU->nPC, gComboTraceHits);
         }
     }
+#endif
 
-    if (COMBO_REPAIR_TASK) {
+#if IS_MM
+    // `nReturnAddrLast != 0` excludes cold boot, where $ra == 0 is correct.
+#if COMBO_DEBUG_HOOKS
+    if (gComboRaZeroLeft > 0 && pCPU->aGPR[31].u32 == 0 && pCPU->nReturnAddrLast != 0 && gIsOotmmCombo) {
+        comboProbeRaZero(pCPU, SYSTEM_RAM(pSystem));
+    }
+#endif
+
+    if (COMBO_REPAIR_TASK && COMBO_REPAIR_ARMED(pCPU)) {
         Rsp* pRSP = SYSTEM_RSP(pSystem);
 
         if (pRSP != NULL && pRSP->pDMEM != NULL) {
-            u32* pnTask = (u32*)(pRSP->pDMEM + 0xFC0);
-            s32 iWord;
+            u32 nType = *(u32*)(pRSP->pDMEM + 0xFC0);
 
+            // Must stay on the boundary path: nAddressSP/nSizeGet/nAddressRDRAM are sticky, so
+            // sampling them later would pick up whatever DMA came next instead.
             if (pRSP->nAddressSP == 0xFC0 && (pRSP->nSizeGet & 0xFFF) == 0x3F) {
                 gComboTaskRamAddr = (u32)pRSP->nAddressRDRAM;
             }
 
-            if ((u32)(pnTask[0] - 1) <= 6) {
-                if (pRSP->nAddressSP == 0xFC0) {
-                    for (iWord = 0; iWord < 16; iWord++) {
-                        gComboShadowTask[iWord] = pnTask[iWord];
-                    }
-
-                    gComboShadowValid = true;
-                }
-            } else {
-                u32* pnSource = NULL;
-                Ram* pRAM = SYSTEM_RAM(pSystem);
-
-                if (pRAM != NULL && pRAM->pBuffer != NULL && gComboTaskRamAddr != 0 &&
-                    gComboTaskRamAddr + 0x40 <= pRAM->nSize) {
-                    u32* pnGuest = (u32*)(pRAM->pBuffer + gComboTaskRamAddr);
-
-                    if ((u32)(pnGuest[0] - 1) <= 6) {
-                        pnSource = pnGuest;
-                    }
-                }
-
-                if (pnSource == NULL && gComboShadowValid) {
-                    pnSource = gComboShadowTask;
-                }
-
-                if (pnSource != NULL) {
-                    for (iWord = 0; iWord < 16; iWord++) {
-                        pnTask[iWord] = pnSource[iWord];
-                    }
-                }
+            if ((u32)(nType - 1) > 6) {
+                comboRepairTask(pCPU, pRSP);
+            } else if (COMBO_SHADOW_WANTED(pRSP)) {
+                comboShadowTask(pRSP);
             }
         }
     }
-
 #endif
 
     if (!romUpdate(SYSTEM_ROM(pSystem))) {
@@ -399,6 +528,7 @@ bool cpuExecuteUpdate(Cpu* pCPU, s32* pnAddressGCN, u64 nTime) {
         if (pCPU->nRetrace == pCPU->nRetraceUsed && root->kill_number < 12) {
             if (treeKillReason(pCPU, &root->kill_limit)) {
                 pCPU->survivalTimer++;
+                COMBO_PERF_BUMP(nKills);
             }
             if (root->kill_limit != 0) {
                 treeCleanUp(pCPU, root);
