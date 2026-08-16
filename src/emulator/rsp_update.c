@@ -39,6 +39,132 @@ static s32 gComboTaskFresh;
 static s32 gComboPrevHalt;
 static s32 gComboPrevYield;
 
+#if IS_MM && COMBO_FRAME_BUDGET
+
+#if COMBO_BUDGET_REPORT
+#define COMBO_BUDGET_LOG_PERIOD 60
+
+//! MM's OS_CYCLES_TO_NSEC (1000000000/15625 over OS_CPU_COUNTER/15625), so the report prints the
+//! number func_80173B48() would have returned.
+#define COMBO_CYCLES_TO_NSEC(nCycles) (((u64)(nCycles) * 64000) / 3000)
+
+//! framerateDivisor while a scene is running (z_play.c).
+#define COMBO_BUDGET_DIVISOR 3
+
+static s32 gComboBudgetLeft;
+#endif
+
+#if COMBO_FIX_RETRACE_TIME
+static s32 gComboRetraceFixed;
+#endif
+
+#if COMBO_FIX_RDP_TIME
+static s32 gComboRdpClamps;
+#endif
+
+static u32* comboBudgetGuest(Ram* pRAM, u32 nAddress) {
+    u32 nOffset = nAddress & 0x1FFFFFFF;
+
+    if (pRAM == NULL || pRAM->pBuffer == NULL || nOffset + sizeof(OSTime) > pRAM->nSize) {
+        return NULL;
+    }
+
+    return (u32*)(pRAM->pBuffer + nOffset);
+}
+
+//! These are OSTimes, big-endian like the host, so word 0 is the high half. Anything that does not
+//! fit in the low word is already far outside the band, so saturate instead. It reports as -1.
+static u32 comboBudgetRead(const u32* pnTime) { return pnTime[0] != 0 ? 0xFFFFFFFF : pnTime[1]; }
+
+static void comboBudgetWrite(u32* pnTime, u32 nValue) {
+    pnTime[0] = 0;
+    pnTime[1] = nValue;
+}
+
+//! Corrects the frame-budget inputs MM latched at boot. See COMBO_FRAME_BUDGET in system.h.
+static void comboFrameBudget(Rsp* pRSP) {
+    System* pSystem = pRSP->pHost;
+    Cpu* pCPU = SYSTEM_CPU(pSystem);
+    Ram* pRAM = SYSTEM_RAM(pSystem);
+    u32* pnRetrace;
+    u32 nRetrace;
+#if COMBO_FIX_RDP_TIME || COMBO_BUDGET_REPORT
+    u32* pnRDP;
+    u32 nRDP;
+#endif
+#if COMBO_BUDGET_REPORT
+    u32* pnPeriod;
+    u32 nRDPRaw;
+    s32 nSpare;
+#endif
+
+    if (!COMBO_BUDGET_ARMED(pSystem, pCPU)) {
+        return;
+    }
+
+    pnRetrace = comboBudgetGuest(pRAM, COMBO_MM_IRQ_RETRACE_TIME);
+    if (pnRetrace == NULL) {
+        return;
+    }
+    nRetrace = comboBudgetRead(pnRetrace);
+
+#if COMBO_FIX_RDP_TIME || COMBO_BUDGET_REPORT
+    pnRDP = comboBudgetGuest(pRAM, COMBO_MM_RDP_TIME_TOTAL);
+    if (pnRDP == NULL) {
+        return;
+    }
+    nRDP = comboBudgetRead(pnRDP);
+#endif
+#if COMBO_BUDGET_REPORT
+    pnPeriod = comboBudgetGuest(pRAM, COMBO_MM_GRAPH_PERIOD);
+    if (pnPeriod == NULL) {
+        return;
+    }
+    nRDPRaw = nRDP;
+#endif
+
+#if COMBO_FIX_RETRACE_TIME
+    if (nRetrace == 0) {
+        gComboRetraceFixed = 0;
+    } else if (!gComboRetraceFixed && gIsOotmmCombo &&
+               (nRetrace < COMBO_RETRACE_MIN || nRetrace > COMBO_RETRACE_MAX)) {
+        gComboRetraceFixed = 1;
+        OSReport("combo: gIrqMgrRetraceTime %d outside [%d,%d], forcing %d\n", nRetrace, COMBO_RETRACE_MIN,
+                 COMBO_RETRACE_MAX, COMBO_RETRACE_REF);
+        comboBudgetWrite(pnRetrace, COMBO_RETRACE_REF);
+        nRetrace = COMBO_RETRACE_REF;
+    }
+#endif
+
+#if COMBO_FIX_RDP_TIME
+    //! Every frame, because Graph_ExecuteAndDraw recomputes it every frame.
+    if (gIsOotmmCombo && nRDP > COMBO_RDP_TIME_CAP) {
+        if (gComboRdpClamps++ == 0) {
+            OSReport("combo: gRDPTimeTotal %d over cap %d, clamping from here on\n", nRDP, COMBO_RDP_TIME_CAP);
+        }
+        comboBudgetWrite(pnRDP, COMBO_RDP_TIME_CAP);
+        nRDP = COMBO_RDP_TIME_CAP;
+    }
+#endif
+
+#if COMBO_BUDGET_REPORT
+    if (--gComboBudgetLeft > 0) {
+        return;
+    }
+    gComboBudgetLeft = COMBO_BUDGET_LOG_PERIOD;
+
+    nSpare = (s32)(COMBO_CYCLES_TO_NSEC(COMBO_BUDGET_DIVISOR * (u64)nRetrace) - COMBO_CYCLES_TO_NSEC(nRDP));
+
+    OSReport("combo: budget retrace %d rdp %d (raw %d) period %d -> spare %d ns, roll dust %d, step dust %d\n",
+             nRetrace, nRDP, nRDPRaw, comboBudgetRead(pnPeriod), nSpare, nSpare / 20000000, nSpare / 12000000);
+#endif
+}
+
+#define COMBO_FRAME_BUDGET_TICK(pRSP) comboFrameBudget(pRSP)
+#else
+#define COMBO_FRAME_BUDGET_TICK(pRSP) ((void)0)
+#endif
+
 static void comboTaskTrack(Rsp* pRSP) {
     s32 nHalt = pRSP->nStatus & 1;
     s32 nYield = pRSP->yield.bValid;
@@ -182,6 +308,8 @@ bool rspUpdate(Rsp* pRSP, RspUpdateMode eMode) {
                                                  SYSTEM_CPU(pRSP->pHost)->gTree != NULL
                                              ? SYSTEM_CPU(pRSP->pHost)->gTree->total_memory
                                              : 0);
+
+                        COMBO_FRAME_BUDGET_TICK(pRSP);
                     }
                 }
 

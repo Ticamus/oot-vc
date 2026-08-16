@@ -387,32 +387,56 @@ bool systemEvent(System* pSystem, s32 nEvent, void* pArgument);
 //! Detected once in systemSetupGameALL()
 extern bool gIsOotmmCombo;
 
-//! mm-j picks per-game behaviour by comparing System+0x18 -- the field
-//! this decomp calls storageDevice -- against a small integer per title rather than testing
-//! eTypeROM the way the oot-* builds do. MM is 5. About twenty-five sites read it, across frame.s,
-//! rdp.s, rsp.s, eeprom.s and cpuGetPPC.
-//!
-//! The combo needs 4 for exactly one of them: the S2DEX G_BG_1CYC / G_BG_COPY dispatch in
-//! rspParseGBI_F3DEX2, which is what routes OoT's pre-rendered rooms, the Temple of Time exterior
-//! and the pause-menu background to the generic guS2DEmuBgRect1Cyc / rspBgRectCopy instead of MM's
-//! blur path. It cannot be scoped to that one test: the G_BG_COPY case reads the field with no
-//! call of any kind before it, so there is no hook to open a window on -- verified in
-//! rsp_1b.s. So it is announced for the whole OoT half, after systemReset's
-//! xlObjectEvent(..., 0x1003) loop so frameEvent still allocates the Frame buffers at MM's value.
-//! DIAGNOSTIC SWITCH, not a feature. 0 leaves the selector at MM's value for both halves, exactly
-//! as retail mm-j does. That costs OoT's pre-rendered rooms and the Temple of Time exterior -- and
-//! very likely the pause background with them -- and it exists to finish partitioning the rare
-//! "frameEnd: INTERNAL ERROR: Called when 'gbFrameBegin' is TRUE!" crash. With the capture already
-//! ruled out by a build that disabled it and still crashed, this flip is the only change left that
-//! was present in every round where the crash was seen, and absent in the one round where it was
-//! not. If this build survives a hundred pauses, the flip is the cause and the fix is to narrow
-//! what it changes; if it still crashes, nothing of ours is responsible and the next place to look
-//! is the RSP task/frame pairing itself (rspUpdate's `(nMode & 4) && (nMode & 8)` gate).
 #define COMBO_MODE_FLIP 1
 
 #define COMBO_GAME_MODE_OOT 4 // SOT_RAM
 #define COMBO_GAME_MODE_MM 5 // SOT_ROM
 
+//! MM sizes several particle effects on the frame time it believes it has left:
+//! `func_80173B48()` (game.c) returns
+//! `OS_CYCLES_TO_NSEC(framerateDivisor * gIrqMgrRetraceTime) - OS_CYCLES_TO_NSEC(gRDPTimeTotal)`,
+//! and callers divide it by a per-effect budget to get a particle count. Under 20 ms of slack the
+//! Goron roll spawns no dust. z_player.c's func_8083F8A8 still returns true, so the dust sound
+//! plays with nothing to see. And under 12 ms the walking dust, grass fragments, rain density and
+//! ambient effects go with it.
+#define COMBO_FRAME_BUDGET 1
+
+//! `gIrqMgrRetraceTime` is latched ONCE, from the interval between the first two
+//! retrace messages the guest's IrqMgr thread handles. MM boots cold after a switch with its boot
+//! throttled by the combo's synchronous ROM copies, so those two come off the queue back to back:
+//! measured at **2895** (62 us) against 781250, leaving no slack for the whole MM half.
+//! 1 = rewrite the guest's value once per boot when it lands outside the band below.
+#define COMBO_FIX_RETRACE_TIME 1
+
+//! `gRDPTimeTotal` is `osGetTime() - sRDPStartTime` from Sched_HandleRDPDone. There is no real RDP
+//! here, the DP is raised at task submission, so it times how long the guest's scheduler thread
+//! took to wake up, which the combo's ROM paging could in principle stretch past the budget.
+//! **Measured and ruled out**: 1263 to 7832 cycles against a 1406250 allowance, clamp never fired.
+#define COMBO_FIX_RDP_TIME 0
+
+//! Both inputs, the recomputed slack and the counts MM would derive, once per
+//! COMBO_BUDGET_LOG_PERIOD frames. What identified the fault; first thing to turn back on if
+//! another budget-driven effect goes missing.
+#define COMBO_BUDGET_REPORT 0
+
+//! One NTSC field in guest `osGetTime` units. cpu_execute_update.c drives the guest counter with
+//! `nCounterDelta = (nTimeTotal * 77) / 100` off the host tick (60.75 MHz), i.e. 46.78 MHz, within
+//! 0.2% of the N64's own 46.875 MHz. A healthy interval is the N64 value, 46875000/60.
+#define COMBO_RETRACE_REF 781250
+#define COMBO_RETRACE_MIN (COMBO_RETRACE_REF / 2)
+#define COMBO_RETRACE_MAX (COMBO_RETRACE_REF * 2)
+
+//! ~21 ms, leaving the 50 ms gameplay budget the 20 ms of slack the Goron roll needs.
+#define COMBO_RDP_TIME_CAP 1000000
+
+//! MM US 1.0, and the OoTMM combo keeps that layout byte for byte (checked against OoTMM's
+//! link_mm.ld). The mm-j channel's own NZSJ ROM has different ones, hence the NZSE gate below.
+#define COMBO_MM_IRQ_RETRACE_TIME 0x80096B70
+#define COMBO_MM_RDP_TIME_TOTAL 0x801FBAF0
+#define COMBO_MM_GRAPH_PERIOD 0x801FBAF8
+
+#define COMBO_BUDGET_ARMED(pSystem, pCPU)                                                                              \
+    ((pSystem) != NULL && (pCPU) != NULL && (pSystem)->eTypeROM == NZSE && (!gIsOotmmCombo || (pCPU)->isMM))
 
 //! True from the moment the combo's switch stub takes over (comboGameSwitch2's jump through KSEG1)
 //! until comboEmulatorSwitchFix() has run. The stub runs with the
