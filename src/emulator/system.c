@@ -1,6 +1,7 @@
 #include "emulator/system.h"
 #include "emulator/ai.h"
 #include "emulator/codeRVL.h"
+#include "emulator/comboPerf.h"
 #include "emulator/controller.h"
 #include "emulator/cpu.h"
 #include "emulator/disk.h"
@@ -562,7 +563,7 @@ bool systemGetInitialConfiguration(System* pSystem, Rom* pROM, s32 iConfig) {
     gSystemRomConfigurationList[iConfig].storageDevice = 0;
 
     // Ocarina of Time or Majora's Mask
-    if (gpSystem->eTypeROM == NZSJ || gpSystem->eTypeROM == NZSE || gpSystem->eTypeROM == NZSP) {
+    if (gpSystem->eTypeROM == NZSJ || gpSystem->eTypeROM == NZSE || gpSystem->eTypeROM == NZSP || gpSystem->eTypeROM == CZLJ || gpSystem->eTypeROM == CZLE ) {
         gSystemRomConfigurationList[iConfig].storageDevice = 2;
 
         if (!simulatorGetArgument(SAT_VIBRATION, &szArgument) || *szArgument == '1') {
@@ -1636,8 +1637,8 @@ static bool systemSetupGameALL(System* pSystem) {
         pRSP->unk_59F0 = 0;
 
         pFrame->unk_55928 = lbl_80201504;
-        pSound->unk_53C = 1;
-        pSound->unk_534 = 6;
+        pSound->bFlowControl = 1;
+        pSound->nDepthTarget = COMBO_SND_DEPTH;
 
         lbl_801FF810 = 2;
         lbl_801FF814 = lbl_80201508;
@@ -2095,6 +2096,7 @@ static bool fn_8000A504(void) {
     s32 i;
     s32 temp_r5;
     u32 nAddress;
+    u32 nTickStart = COMBO_PERF_TICK();
 
     nAddress = gpSystem->cpuBlock.nAddress0;
     nAddressEnd = (nAddress + gpSystem->cpuBlock.nSize);
@@ -2119,6 +2121,8 @@ static bool fn_8000A504(void) {
             return false;
         }
     }
+
+    COMBO_PERF_ADD(nDmaTicks, COMBO_PERF_TICK() - nTickStart);
 
     gpSystem->cpuBlock.nSize = 0;
     if (gpSystem->cpuBlock.pfUnknown != NULL && !gpSystem->cpuBlock.pfUnknown()) {
@@ -2168,6 +2172,11 @@ bool fn_8000A6A4(System* pSystem, CpuBlock* pBlock) {
 bool fn_800166D0(System* pSystem, s32 nAddress0, s32 nAddress1, u32 nSize, UnknownBlockCallback pfUnknown) {
     void* spC;
     s32 sp8;
+
+    //! Every guest cart DMA, whatever the block cache does with it. Counted here rather than in
+    //! romCopy so it stays one count per guest transfer instead of one per block.
+    COMBO_PERF_BUMP(nDmaCount);
+    COMBO_PERF_ADD(nDmaBytes, nSize);
 
     sp8 = nSize;
     pSystem->cpuBlock.nSize = nSize;

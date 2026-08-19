@@ -436,6 +436,11 @@ static bool romCopyUpdate(Rom* pROM) {
 
     while (pROM->copy.nSize != 0) {
         if (pROM->copy.pCallback != NULL && pCPU->nRetrace != pCPU->nRetraceUsed) {
+            //! This test is above the cache-hit check below, so a copy whose blocks are all resident
+            //! stalls here too, and it stays stalled for as long as the guest defers its VI interrupt
+            //! (nRetraceUsed only advances when viForceRetrace succeeds). Counted because a blocked
+            //! cart DMA blocks the guest thread waiting on it, including the audio thread.
+            COMBO_PERF_BUMP(nGateStall);
             return true;
         }
 

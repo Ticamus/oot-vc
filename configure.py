@@ -359,7 +359,7 @@ config.libs = [
                    extra_cflags=["-sdata 0", "-sdata2 0"]),
             Object(LinkedFor("oot-j", "oot-u"), "emulator/banner.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/stringtable.c"),
-            # mm-j: only rspGet32 is source-linked
+            Object(LinkedFor("mm-j"), "emulator/rsp_audio.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/rsp.c"),
             Object(LinkedFor("mm-j"), "emulator/rspGet32.c"),
             Object(NotLinked, "emulator/rsp_2.c"),

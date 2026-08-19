@@ -31,6 +31,67 @@ typedef enum SoundPlayMode {
     SPM_RAMPPLAYED = 2,
 } SoundPlayMode;
 
+#if IS_MM
+typedef struct SoundBuf {
+    /* 0x0 */ u32 nSize;
+    /* 0x4 */ void* pData;
+} SoundBuf; // size = 0x8
+
+//! Value MM stores in Sound::eMode when soundPlayBuffer found the ready queue empty and fell back
+//! to pBufferZero. Distinct from the SoundPlayMode enum above, which is OoT's.
+#define SOUND_MM_MODE_STARVE 3
+
+//! Number of descriptors in the pool. `cmpwi r26, 0x10` in fn_80073C78, and the free-list push in
+//! fn_80073208 refuses to grow past it. Bounds how large nDepthTarget may safely be set.
+#define SOUND_MM_BUF_COUNT 16
+
+//! Value systemSetupGameALL writes to Sound::nDepthTarget, i.e. how many finished audio buffers the
+//! backend keeps queued before it tells the guest "AI busy" and the guest stops producing. Retail
+//! MM ships 6.
+#define COMBO_SND_DEPTH 6
+
+typedef struct Sound {
+    /* 0x000 */ s32 bMute;
+    /* 0x004 */ void* pSrcData;
+    /* 0x008 */ s32 nClockVI;
+    /* 0x00C */ s32 nFrequency;
+    /* 0x010 */ s32 nDacrate;
+    /* 0x014 */ s32 nSndLen;
+    /* 0x018 */ SoundBuf aBuf[SOUND_MM_BUF_COUNT];
+    /* 0x098 */ s32 nVolume;
+    /* 0x09C */ s32 nVolumeCurve[257];
+    /* 0x4A0 */ s32 nFreeCount;
+    /* 0x4A4 */ SoundBuf* apFree[SOUND_MM_BUF_COUNT];
+    /* 0x4E4 */ s32 nReadyCount;
+    /* 0x4E8 */ SoundBuf* apReady[SOUND_MM_BUF_COUNT];
+    /* 0x528 */ SoundBuf* pFill;
+    /* 0x52C */ SoundBuf* pPlaying;
+    /* 0x530 */ f32 rMasterVolume;
+    /* 0x534 */ s32 nDepthTarget;
+    /* 0x538 */ s32 bDMAMatched;
+    //! 0 selects a volume-derived answer in fn_80073B20 instead of the queue-depth one. MM sets 1.
+    /* 0x53C */ s32 bFlowControl;
+    /* 0x540 */ s32 nFakeAILen;
+    /* 0x544 */ s32 nMuteBuffers;
+    /* 0x548 */ f32 rVolumeCur;
+    /* 0x54C */ f32 rVolumeTarget;
+    /* 0x550 */ f32 rVolumeStep;
+    /* 0x554 */ volatile s32 eMode;
+    /* 0x558 */ void* pBufferZero;
+    /* 0x55C */ void* pBufferB;
+    /* 0x560 */ void* pBufferC;
+    /* 0x564 */ void* pBufferD;
+    /* 0x568 */ s32 nSizePlay;
+    /* 0x56C */ s32 nSizeZero;
+    /* 0x570 */ s32 nSizeB;
+    /* 0x574 */ s32 nSizeCD;
+    /* 0x578 */ s16 bInterpolate;
+    /* 0x57A */ u8 pad_57A[2];
+    /* 0x57C */ u8 anScratch[0x10];
+} Sound; // size >= 0x58C
+
+#else
+
 typedef struct Sound {
     /* 0x000 */ s32 unk_00;
     /* 0x004 */ void* pSrcData;
@@ -38,7 +99,7 @@ typedef struct Sound {
     /* 0x00C */ s32 nDacrate;
     /* 0x010 */ s32 nSndLen;
     /* 0x014 */ void* apBuffer[16];
-    /* 0x01C */ s32 anSizeBuffer[16];
+    /* 0x054 */ s32 anSizeBuffer[16];
     /* 0x094 */ s32 unk_94;
     /* 0x098 */ s32 nVolumeCurve[257];
     /* 0x49C */ s32 iBufferPlay;
@@ -52,13 +113,9 @@ typedef struct Sound {
     /* 0x4BC */ s32 nSizeZero;
     /* 0x4C0 */ s32 nSizeHold;
     /* 0x4C4 */ s32 nSizeRamp;
-#if IS_MM
-    /* 0x4C8 */ u8 unk_4C8[0x534 - 0x4C8];
-    /* 0x534 */ s32 unk_534;
-    /* 0x538 */ s32 unk_538;
-    /* 0x53C */ s32 unk_53C;
+} Sound; // size = 0x4C8
+
 #endif
-} Sound; // size = 0x4C8 (0x540 for MM)
 
 bool soundWipeBuffers(Sound* pSound);
 bool soundSetLength(Sound* pSound, s32 nSize);

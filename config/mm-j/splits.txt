@@ -115,8 +115,11 @@ emulator/rdb.c:
 	.data       start:0x80151668 end:0x801516D8
 	.sdata      start:0x801FFF50 end:0x801FFF58
 
+emulator/rsp_audio.c:
+	.text       start:0x80054AE4 end:0x80054D54
+
 emulator/rsp.c:
-	.text       start:0x80054AE4 end:0x80071370
+	.text       start:0x80054D54 end:0x80071370
 	.data       start:0x801516D8 end:0x80151D94
 
 emulator/rspGet32.c:

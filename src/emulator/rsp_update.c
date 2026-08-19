@@ -186,6 +186,12 @@ bool rspUpdate(Rsp* pRSP, RspUpdateMode eMode) {
     s32 nCount = 0;
     Frame* pFrame = SYSTEM_FRAME(pRSP->pHost);
 
+#if COMBO_MUTE_AUDIO_HLE
+    //! Guest reloads its audio microcode on scene and
+    //! game changes, and rspParseABI would re-run its checksum pass the moment anything put -1 back.
+    pRSP->eTypeAudioUCodeMM = RSP_MM_AUDIO_NONE;
+#endif
+
     comboTaskTrack(pRSP);
 
     if (!(pRSP->nStatus & 1)) {
@@ -203,6 +209,9 @@ bool rspUpdate(Rsp* pRSP, RspUpdateMode eMode) {
                     }
 
                     pRSP->nMode = (pRSP->nMode & ~2) | 0x10;
+
+                    COMBO_PERF_BUMP(nGbiTasks);
+                    COMBO_PERF_ADD(nGbiBytes, ((RspTask*)(pRSP->pDMEM + 0xFC0))->nLengthMBI & 0x7FFFFF);
 
                     if (!rspParseGBI_Setup(pRSP, pRSP->pDMEM + 0xFC0)) {
                         return false;
@@ -279,7 +288,12 @@ bool rspUpdate(Rsp* pRSP, RspUpdateMode eMode) {
             }
 
             if (nCount != 0) {
+                u32 nGbiTick = COMBO_PERF_TICK();
+
                 rspParseGBI(pRSP, &bDone, nCount);
+
+                COMBO_PERF_ADD(nGbiTicks, COMBO_PERF_TICK() - nGbiTick);
+                COMBO_PERF_BUMP(nGbiCalls);
 
                 if (bDone) {
                     pRSP->nMode &= ~0x10;

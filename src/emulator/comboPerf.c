@@ -11,7 +11,9 @@
  */
 #include "emulator/comboPerf.h"
 #include "emulator/controller.h"
+#include "emulator/cpu.h"
 #include "emulator/crashScreen.h"
+#include "emulator/soundRVL.h"
 #include "emulator/system.h"
 #include "emulator/vc64_RVL.h"
 #include "emulator/xlCoreRVL.h"
@@ -56,6 +58,34 @@ CD static const char kFmtCombo[] =
 //! is the result being looked for, so its absence must not read as "not measured".
 CD static const char kFmtTask[] = "perf:   orphan blocked %d | retire-no-sp %d | shadow-used %d\n";
 CD static const char kFmtRom[] = "perf:   rom %d blocks (%d/frame) lru %d entries (%d/block)\n";
+//! Audio backend health. Printed every period even when clean, like kFmtTask and unlike kFmtRom: a
+//! zero here is the result being looked for, so its absence must not read as "not measured".
+//! `depth` is the mean ready-queue depth against nDepthTarget; `drained`/`starve`/`poolfull` are
+//! counts out of `of` samples taken at 60 Hz. See ComboPerf's nSnd* fields for what each one means.
+CD static const char kFmtSnd[] =
+    "perf:   snd depth %d.%02d/%d | drained %d starve %d poolfull %d feeds %d (of %d)\n";
+//! Printed beside kFmtSnd because it is the candidate explanation for it: a skipped retrace is an
+//! audio buffer the guest never generates. Every period, zero included.
+CD static const char kFmtRetrace[] = "perf:   retrace host %d guest %d lost %d (%d%%)\n";
+//! The decisive one. `need` is nFrequency * 4 B/s, what the AI drains; `fed` is what the guest
+//! actually supplied. Below ~95% the guest is structurally underproducing and no amount of host
+//! buffering can cover it -- the queue will empty and stay empty.
+CD static const char kFmtSndRate[] = "perf:   snd fed %d B/s need %d B/s (%d%%) freq %d\n";
+//! The guest cart-DMA path. `inval` is the share of wall clock spent inside fn_8000A504, i.e. the
+//! tree/frame/RSP invalidation every DMA completion performs -- see ComboPerf::nDmaTicks. `gate` is
+//! how often the retrace gate refused to advance a copy. Printed every period, zero included.
+CD static const char kFmtDma[] = "perf:   dma %d (%d KB) inval %d ms (%d%% of wall) gate %d\n";
+//! The audio HLE, timed from inside MM's RSP audio thread. `tasks/s` against 60 and `%% of wall`
+//! near 100 are the two readings that matter -- see ComboPerf::nAbiTicks. `B/task` is the work the
+//! guest asked for, which is what separates "more audio" from "slower audio" across two ROMs.
+CD static const char kFmtAbi[] =
+    "perf:   abi %d tasks (%d/s) %d ms (%d%% of wall, %d us/task) %d B/task\n";
+//! The graphics display-list parser. With this line the frame budget finally closes: gbi + abi +
+//! inval + the remainder is the whole of the wall clock. `calls` are 0x400-command time slices,
+//! `tasks` are display lists set up -- the two differ because MM slices on an alarm, not on the
+//! count. `B/task` is the work asked for, read like the audio line's.
+CD static const char kFmtGbi[] =
+    "perf:   gbi %d tasks (%d/frame) %d ms (%d%% of wall, %d us/task) %d B/task | %d slices\n";
 CD static const char kFmtSplit[] = "perf:   boundaries/frame jump %d idle %d other %d\n";
 #endif
 
@@ -231,6 +261,122 @@ CT static void comboPerfStamp(u16* pFB, s32 nStride) {
                  PERF_ROWS * PERF_LINE_H * nStride * (s32)sizeof(u16));
 }
 
+//! Snapshot of MM's audio backend, five loads. Runs in the VI interrupt, so it must stay this short
+//! and must not take a lock; torn reads across the five fields are irrelevant to a statistic.
+//!
+//! The offsets come from include/emulator/soundRVL.h's IS_MM branch, which is the retail layout read
+//! out of the disassembly -- soundRVL.c is not linked for mm-j, so these are the only names for it.
+//! Previous Sound::pSrcData, for the nSndFeeds edge count. -1 rather than NULL so it lands in
+//! .crashdata: a zero initialiser would create .crashbss and with it a _bss_init_info entry, which
+//! grows .init and shifts the whole image.
+CD static void* sSndLastSrc = (void*)-1;
+
+CT static void comboPerfSampleSound(void) {
+    Sound* pSound;
+
+    if (gpSystem == NULL) {
+        return;
+    }
+
+    //! apObject[] is NULLed by systemCreateStorageDevice, so this is a real test and not a
+    //! garbage-pointer read. In practice the callback is not installed until ~30 guest frames in,
+    //! long after SOT_AUDIO exists; the test is here because the callback outlives any teardown.
+    pSound = SYSTEM_SOUND(gpSystem);
+    if (pSound == NULL) {
+        return;
+    }
+
+    gComboPerf.nSndSamples++;
+    gComboPerf.nSndDepth += pSound->nReadyCount;
+
+    if (pSound->nReadyCount == 0) {
+        gComboPerf.nSndDrained++;
+    }
+    if (pSound->eMode == SOUND_MM_MODE_STARVE) {
+        gComboPerf.nSndStarve++;
+    }
+    if (pSound->nFreeCount == 0) {
+        gComboPerf.nSndPoolFull++;
+    }
+    if (pSound->pSrcData != sSndLastSrc) {
+        sSndLastSrc = pSound->pSrcData;
+        gComboPerf.nSndFeeds++;
+        gComboPerf.nSndBytes += pSound->nSndLen;
+    }
+}
+
+//! Previous Cpu::nRetrace / Cpu::nRetraceUsed, for the advance deltas. -1 marks "no previous sample":
+//! the first one after a reset only seeds them, so a period boundary cannot invent a huge delta.
+CD static s32 sRetraceHostPrev = -1;
+CD static s32 sRetraceGuestPrev = -1;
+
+//! Counts how many VI fields the guest was actually given against how many the host produced. Both
+//! are plain counters that only ever rise, so the difference of their advances is exactly what the
+//! nDelta >= 4 snap in cpuExecuteUpdate threw away.
+CT static void comboPerfSampleRetrace(void) {
+    Cpu* pCPU;
+    s32 nHost;
+    s32 nGuest;
+
+    if (gpSystem == NULL || (pCPU = SYSTEM_CPU(gpSystem)) == NULL) {
+        return;
+    }
+
+    nHost = (s32)pCPU->nRetrace;
+    nGuest = (s32)pCPU->nRetraceUsed;
+
+    //! Skip the seeding sample, and any sample where either counter went backwards -- the OoT<->MM
+    //! switch resets the CPU, and a negative delta would poison the whole period.
+    if (sRetraceHostPrev >= 0 && nHost >= sRetraceHostPrev && nGuest >= sRetraceGuestPrev) {
+        gComboPerf.nRetraceHost += nHost - sRetraceHostPrev;
+        gComboPerf.nRetraceGuest += nGuest - sRetraceGuestPrev;
+    }
+
+    sRetraceHostPrev = nHost;
+    sRetraceGuestPrev = nGuest;
+}
+
+//! Echo of Sound::nDepthTarget so the report line can show what the measured depth is being compared
+//! against. Refreshed from the main thread rather than re-read in the interrupt.
+CD static s32 sSndTarget = -1;
+
+//! Echo of Sound::nFrequency. The AI drains nFrequency * 4 bytes per second, so this is the
+//! denominator the supplied byte rate is judged against.
+CD static s32 sSndFreq = -1;
+
+//! One-shot budget for the layout self-check below.
+CD static s32 sSndDiagLeft = 1;
+CD static const char kFmtSndInit[] =
+    "perf: snd play %04X zero %04X target %d flow %d free %d  (play must read 2000)\n";
+
+/**
+ * @brief Refresh sSndTarget, and once per boot prove the Sound layout is the right one.
+ *
+ * Everything the nSnd* counters report is read at hardcoded offsets into a retail object mm-j does
+ * not build, so a wrong base pointer or a wrong map would produce plausible-looking numbers rather
+ * than an error. `play` is the sentinel: MM's soundEvent hardcodes soundSetBufferSize(pSound,
+ * 0x2000) and nothing else in the struct holds that value, so `play 2000` together with a `target`
+ * matching what systemSetupGameALL wrote is the proof. If either is wrong, ignore the snd line.
+ *
+ * Main thread, unlike comboPerfSampleSound -- OSReport does not belong in the VI interrupt.
+ */
+CT static void comboPerfCheckSound(void) {
+    Sound* pSound;
+
+    if (gpSystem == NULL || (pSound = SYSTEM_SOUND(gpSystem)) == NULL) {
+        return;
+    }
+
+    sSndTarget = pSound->nDepthTarget;
+    sSndFreq = pSound->nFrequency;
+
+    if (sSndDiagLeft > 0) {
+        sSndDiagLeft--;
+        OSReport(kFmtSndInit, pSound->nSizePlay, pSound->nSizeZero, pSound->nDepthTarget,
+                 pSound->bFlowControl, pSound->nFreeCount);
+    }
+}
+
 //! Chained VI post-retrace callback -- lets the overlay work without touching the emulator's present
 //! path. Post-retrace is the one instant a framebuffer write lands after the emulator's EFB copy and
 //! before the field scans it out (VISetRegs latches `CurrBufAddr = NextBufAddr` between PreCB/PostCB).
@@ -239,6 +385,8 @@ CT static void comboPerfStamp(u16* pFB, s32 nStride) {
 //! stamping both is free anyway -- the buffer that just became current keeps the text for its field,
 //! the other one is about to be copied into and loses it regardless, then gets stamped again once it
 //! becomes current. Redrawn every field since the copy erases it each time.
+//!
+//! It is also the audio sampling clock: a fixed 60 Hz tick, which is what comboPerfSampleSound needs.
 CT static void comboPerfRetrace(u32 nCount) {
     s32 nStride;
     s32 nHeight;
@@ -247,6 +395,12 @@ CT static void comboPerfRetrace(u32 nCount) {
     if (sPrevRetrace != NULL && sPrevRetrace != (VIRetraceCallback)-1) {
         sPrevRetrace(nCount);
     }
+
+    //! Before the PERF_SHOWN gate: the audio sample is a measurement, not part of the overlay, and
+    //! must keep accumulating with the overlay switched off. The callback itself is installed from
+    //! comboPerfBuild, which runs every COMBO_PERF_DRAW_PERIOD frames regardless of PERF_SHOWN.
+    comboPerfSampleSound();
+    comboPerfSampleRetrace();
 
     if (!PERF_SHOWN || rmode == NULL) {
         return;
@@ -328,6 +482,21 @@ CT void comboPerfLogOrphan(s32 nType, s32 nFresh, s32 nStatus, s32 nMode, s32 iD
 
     sOrphanLogLeft--;
     OSReport(kFmtOrphan, nType, nFresh, nStatus, nMode, iDL, nYield, nDL);
+}
+
+//! -2 rather than -1 as the "nothing seen yet" value: -1 is RSP_MM_AUDIO_DETECT, a state the guest
+//! genuinely returns to whenever it reloads its microcode, and that transition is worth a line.
+//! Non-zero so the word stays PROGBITS in .crashdata and contributes no NOBITS to .init.
+CD static s32 sUCodeReported = -2;
+CD static const char kFmtUCode[] = "perf: audio ucode arm %d (MM numbering: -1 detect, 1 ABI2, 6 none)\n";
+
+CT void comboPerfLogUCode(s32 nType) {
+    if (nType == sUCodeReported) {
+        return;
+    }
+
+    sUCodeReported = nType;
+    OSReport(kFmtUCode, nType);
 }
 
 CT static void comboPerfReset(void) {
@@ -532,6 +701,7 @@ CT void comboPerfFrame(s32 nTreeMemory) {
     s64 nNow;
 
     gComboPerf.nFrames++;
+    comboPerfCheckSound();
 
 #if COMBO_PERF_BUTTONS
     comboPerfInput();
@@ -578,6 +748,63 @@ CT void comboPerfFrame(s32 nTreeMemory) {
                  gComboPerf.nHostJumps, gComboPerf.nHostSlow, gComboPerf.nHostNodes,
                  gComboPerf.nOrphans);
         OSReport(kFmtTask, gComboPerf.nOrphanBlocked, gComboPerf.nRetireNoSp, gComboPerf.nShadowUsed);
+        {
+            //! nSndSamples is zero only before the retrace callback is installed, i.e. for the first
+            //! couple of draw periods.
+            s32 nSnd = gComboPerf.nSndSamples;
+            s32 nDepth100 = nSnd != 0 ? (gComboPerf.nSndDepth * 100) / nSnd : 0;
+
+            OSReport(kFmtSnd, nDepth100 / 100, nDepth100 % 100, sSndTarget, gComboPerf.nSndDrained,
+                     gComboPerf.nSndStarve, gComboPerf.nSndPoolFull, gComboPerf.nSndFeeds, nSnd);
+        }
+        {
+            s32 nHost = gComboPerf.nRetraceHost;
+            s32 nLost = nHost - gComboPerf.nRetraceGuest;
+
+            OSReport(kFmtRetrace, nHost, gComboPerf.nRetraceGuest, nLost,
+                     nHost != 0 ? (nLost * 100) / nHost : 0);
+        }
+        {
+            s32 nMs = (s32)OSTicksToMilliseconds(nNow - sStamp);
+            //! Split as (bytes * 25) / (ms * kHz) rather than the obvious
+            //! bytes * 100000 / (ms * freq * 4): the numerator of that form reaches ~1e10 over a
+            //! three-second period and does not fit in an s32.
+            s32 nKHz = sSndFreq / 1000;
+            s32 nFed = nMs > 0 ? (gComboPerf.nSndBytes / nMs) * 1000 : 0;
+
+            OSReport(kFmtSndRate, nFed, sSndFreq > 0 ? sSndFreq * 4 : 0,
+                     (nMs > 0 && nKHz > 0) ? (gComboPerf.nSndBytes * 25) / (nMs * nKHz) : 0, sSndFreq);
+        }
+        {
+            //! nDmaTicks is raw timebase, converted here rather than at each DMA. The percentage is
+            //! against wall clock, not frame count: it answers "how much of the elapsed time went
+            //! into DMA invalidation", which is directly comparable to the audio shortfall.
+            s32 nMs = (s32)OSTicksToMilliseconds(nNow - sStamp);
+            s32 nInvalMs = (s32)OSTicksToMilliseconds((s64)(u32)gComboPerf.nDmaTicks);
+
+            OSReport(kFmtDma, gComboPerf.nDmaCount, gComboPerf.nDmaBytes >> 10, nInvalMs,
+                     nMs > 0 ? (nInvalMs * 100) / nMs : 0, gComboPerf.nGateStall);
+        }
+        {
+            s32 nMs = (s32)OSTicksToMilliseconds(nNow - sStamp);
+            s32 nTasks = gComboPerf.nAbiTasks;
+            s32 nAbiMs = (s32)OSTicksToMilliseconds((s64)(u32)gComboPerf.nAbiTicks);
+
+            OSReport(kFmtAbi, nTasks, nMs > 0 ? (nTasks * 1000) / nMs : 0, nAbiMs,
+                     nMs > 0 ? (nAbiMs * 100) / nMs : 0, nTasks > 0 ? (nAbiMs * 1000) / nTasks : 0,
+                     nTasks > 0 ? gComboPerf.nAbiBytes / nTasks : 0);
+        }
+        {
+            //! Same shape as the dma line: raw ticks converted once here, share taken against wall
+            //! clock rather than frame count so it is directly comparable with `abi` and `inval`.
+            s32 nMs = (s32)OSTicksToMilliseconds(nNow - sStamp);
+            s32 nGbiMs = (s32)OSTicksToMilliseconds((s64)(u32)gComboPerf.nGbiTicks);
+            s32 nTasks = gComboPerf.nGbiTasks;
+
+            OSReport(kFmtGbi, nTasks, nTasks / nFrames, nGbiMs, nMs > 0 ? (nGbiMs * 100) / nMs : 0,
+                     nTasks > 0 ? (nGbiMs * 1000) / nTasks : 0,
+                     nTasks > 0 ? gComboPerf.nGbiBytes / nTasks : 0, gComboPerf.nGbiCalls);
+        }
         //! "other" is cpuExecuteOpcode plus cpuExecuteCall, still in the extracted cpu.c.
         OSReport(kFmtSplit, gComboPerf.nJumps / nFrames, gComboPerf.nIdles / nFrames,
                  (gComboPerf.nBoundaries - gComboPerf.nJumps - gComboPerf.nIdles) / nFrames);

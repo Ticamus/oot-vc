@@ -82,6 +82,12 @@ typedef enum RspAudioUCodeType {
     RUT_UNKNOWN = 4,
 } RspAudioUCodeType;
 
+#if IS_MM
+#define RSP_MM_AUDIO_DETECT (-1)
+#define RSP_MM_AUDIO_ABI2 1
+#define RSP_MM_AUDIO_NONE 6
+#endif
+
 typedef enum RspUCodeType {
     RUT_NONE = -1,
     RUT_TURBO = 0,
@@ -262,7 +268,7 @@ typedef struct Rsp {
     /* 0x539A */ u8 unk539A[0x58CC - 0x539A];
     /* 0x58CC */ s32 (*pfUpdateWaiting)(void);
     /* 0x58D0 */ u32 nTickLast;
-    /* 0x58D4 */ s32 unk2030;
+    /* 0x58D4 */ s32 eTypeAudioUCodeMM;
     /* 0x58D8 */ u16 nAudioMemOffset;
     /* 0x58DA */ u16 nAudioADPCMOffset;
     /* 0x58DC */ u16 nAudioScratchOffset;
@@ -282,7 +288,7 @@ typedef struct Rsp {
     /* 0x5910 */ s32 nAddressSP;
     /* 0x5914 */ s32 nGeometryMode;
     /* 0x5918 */ s32 nAddressRDRAM;
-    /* 0x591C */ RspAudioUCodeType eTypeAudioUCode;
+    /* 0x591C */ s32 unk_591C;
     /* 0x5920 */ struct tXL_LIST* pListUCode;
     /* 0x5924 */ s32 nCountVertex;
     /* 0x5928 */ RspUCodeType eTypeUCode;
