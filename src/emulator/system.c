@@ -1,6 +1,7 @@
 #include "emulator/system.h"
 #include "emulator/ai.h"
 #include "emulator/codeRVL.h"
+#include "emulator/comboIpc.h"
 #include "emulator/comboPerf.h"
 #include "emulator/controller.h"
 #include "emulator/cpu.h"
@@ -3011,12 +3012,21 @@ bool systemEvent(System* pSystem, s32 nEvent, void* pArgument) {
                         return false;
                 }
             }
+
+            // The OoTMM multiplayer register block. Deliberately outside the apObject[] loop above:
+            // giving it an SOT_ would grow the System struct
+            if (!COMBO_IPC_CREATE(pSystem, pCPU)) {
+                return false;
+            }
             break;
         case 3:
             for (storageDevice = 2; storageDevice < SOT_COUNT; storageDevice++) {
                 if (!xlObjectFree(&pSystem->apObject[storageDevice])) {
                     return false;
                 }
+            }
+            if (!COMBO_IPC_DESTROY()) {
+                return false;
             }
             break;
         case 0x1001:
