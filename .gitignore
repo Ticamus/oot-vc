@@ -3,6 +3,8 @@ tools/binutils/**
 tools/mwcc_compiler/**
 tools/asm_processor/tmp/
 tools/elf2dol/elf2dol
+tools/m2c_helpers
+docs/*
 
 # Build artifacts
 build/

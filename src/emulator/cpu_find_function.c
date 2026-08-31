@@ -135,6 +135,12 @@ static inline bool treeSearch(Cpu* pCPU, s32 target, CpuFunction** node) {
 // bound check truncates.
 #define COMBO_JT_MAX_ENTRIES 64
 
+// The "next prologue ends the function" rule above assumes `addiu sp,sp,-imm` can only start a
+// function. GCC breaks that by defering the frame setup past a leaf switch, so the prologue can sit
+// just after the case blocks merge, still inside the same function. Closing there ends the block on
+// a non-branch and the host code runs off the end of its buffer into uninitialised code heap. Only close at a prologue control cannot fall into
+#define COMBO_JT_PROLOGUE 1
+
 // The value materialised into nReg by a nearby `lui`(+`addiu`/`ori`) above nAtAddr, or 0 if none.
 static s32 comboRegValue(CpuDevice** apDevice, u8* aiDevice, s32 nAtAddr, s32 nReg) {
     s32 nProbe;
@@ -210,6 +216,53 @@ static bool comboIsTailCall(CpuDevice** apDevice, u8* aiDevice, s32 nJumpAddr) {
     }
 
     return (nSlot & 0xFFFF0000) == 0x27BD0000 && MIPS_IMM_S16(nSlot) > 0;
+}
+
+// Does nOp leave the block for good, so the word two below it starts fresh? `jal`/`bgezal` come
+// back, so they do not count.
+static bool comboIsTransfer(u32 nOp) {
+    switch ((u8)MIPS_OP(nOp)) {
+        case 0x00: // special
+            return MIPS_FUNCT(nOp) == 0x08; // jr
+        case 0x02: // j
+            return true;
+        case 0x04: // beq; `b` is beq with equal registers
+        case 0x14: // beql
+            return MIPS_RS(nOp) == MIPS_RT(nOp);
+        case 0x10: // cop0
+            return nOp == 0x42000018; // eret
+        default:
+            return false;
+    }
+}
+
+// True when control can fall into nAddress from the word above, which a real function entry never
+// can: the previous function leaves through a transfer at nAddress - 8 with its delay slot at
+// nAddress - 4, or the gap above is nop padding
+static bool comboFallsInto(CpuDevice** apDevice, u8* aiDevice, s32 nAddress) {
+    u32 nOp;
+    s32 nProbe;
+
+    // Skip a run of padding nops
+    nOp = 0;
+    for (nProbe = nAddress - 4; nProbe >= nAddress - 0x20; nProbe -= 4) {
+        if (!COMBO_IN_RAM(nProbe) || !CPU_DEVICE_GET32(apDevice, aiDevice, nProbe, &nOp)) {
+            return false;
+        }
+        if (nOp != 0) {
+            break;
+        }
+    }
+
+    if (nOp == 0 || comboIsTransfer(nOp)) {
+        return false;
+    }
+
+    // nProbe holds a delay slot or ordinary code; the transfer, if any, is the word below it.
+    if (!COMBO_IN_RAM(nProbe - 4) || !CPU_DEVICE_GET32(apDevice, aiDevice, nProbe - 4, &nOp)) {
+        return false;
+    }
+    return !comboIsTransfer(nOp);
 }
 
 // If the `jr nJrReg` at nJrAddr is a switch jump-table dispatch, the highest case-block address in
@@ -748,7 +801,8 @@ bool cpuFindFunction(Cpu* pCPU, s32 theAddress, CpuFunction** tree_node) {
                 // See comboJumpTableMax.
                 else if (bCombo && sawJumpTable && MIPS_RT(opcode) == 29 && MIPS_RS(opcode) == 29 &&
                          MIPS_IMM_S16(opcode) < 0 && current_address > anAddr[1] &&
-                         current_address > startAddress) {
+                         current_address > startAddress &&
+                         !comboFallsInto(apDevice, aiDevice, current_address)) {
                     end_flag = 2;
                 }
                 break;

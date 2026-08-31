@@ -44,9 +44,9 @@ typedef struct Store {
     /* 0xA8 */ s32 unk_A4;
     /* 0xAC */ void* unk_A8;
     /* 0xB0 */ void* unk_AC;
-    /* 0xB8 */ s32 unk_B0;
-    /* 0xBC */ s32 unk_B4;
-    /* 0xC0 */ s64 time;
+    /* 0xB8 */ s64 time;
+    /* 0xC0 */ s32 unk_B0;
+    /* 0xC4 */ s32 unk_B4;
     /* 0xC8 */ u8 unk_B8;
     /* 0xC9 */ u8 unk_B9;
     /* 0xCA */ u8 unk_BA;

@@ -22,6 +22,16 @@
 // are independently named in mm-j at 0x800AA144 and 0x800AA544, bracketing the run.
 extern void fn_800AA390(void); // GXAbortFrame
 
+// Link-time small-data bases, so the dump can say whether r2/r13 still hold them. "r2 is zero" and
+// "r2 is fine but what it points at is not" need opposite investigations.
+extern u8 _SDA_BASE_[];
+extern u8 _SDA2_BASE_[];
+
+// GX's global block. GXLoadTexObj does `lwz r5,-31136(r2)`, `lwz r12,0x518(r5)`, `bctrl` before
+// every texture load, so a null in either is a branch to zero.
+extern void* __GXData;
+#define CRASH_GX_TEXREGION_CB 0x518
+
 #define CT DECL_SECTION(".crashtext")
 #define CD DECL_SECTION(".crashdata")
 
@@ -69,6 +79,9 @@ CD static const char kFmtTitle[] = "== CRASH ==";
 CD static const char kFmtSrr[] = "\nSRR0=%08x SRR1=%08x";
 CD static const char kFmtLr[] = "\nLR  =%08x";
 CD static const char kFmtDar[] = "\nDAR =%08x DSISR=%08x";
+CD static const char kFmtSda[] = "\nr2  %08x want %08x";
+CD static const char kFmtSda13[] = "\nr13 %08x want %08x";
+CD static const char kFmtGx[] = "\nGXD %08x cb %08x";
 CD static const char kFmtWiiGpr[] = "\n\nWii GPRs:";
 CD static const char kFmtGprPair[] = "\nr%-2d=%08x r%-2d=%08x";
 CD static const char kFmtWiiGprCont[] = "Wii GPRs (cont.):";
@@ -456,6 +469,27 @@ CT static char* CrashFaultClass(Cpu* pCPU, OSContext* ctx, char* p, char* end) {
 }
 
 /**
+ * @brief The three host words needed to attribute a "branch to zero" out of GX.
+ *
+ * r2/r13 against their link-time values separate a lost small-data base from intact registers
+ * pointing at clobbered memory. __GXData is read through the linker's symbol rather than the faulting
+ * r2, so a zero here means .sdata2 went; a sound pointer with a zero callback means GX's own .bss did.
+ */
+CT static char* CrashHostStatics(OSContext* ctx, char* p, char* end) {
+    u32 nData = (u32)__GXData;
+    u32 nCallback = 0;
+
+    p = CrashAppend(p, end, kFmtSda, ctx->gprs[2], (u32)_SDA2_BASE_);
+    p = CrashAppend(p, end, kFmtSda13, ctx->gprs[13], (u32)_SDA_BASE_);
+
+    if (nData >= CRASH_HOST_LO && nData < CRASH_HOST_HI && (nData & 3) == 0) {
+        nCallback = *(u32*)(nData + CRASH_GX_TEXREGION_CB);
+    }
+
+    return CrashAppend(p, end, kFmtGx, nData, nCallback);
+}
+
+/**
  * @brief Guest words around `$sp`. This is the discriminator for a bad `$ra`: if the saved-`$ra`
  * slot in the frame already holds the same bad value, guest memory was corrupted; if it still holds
  * a host code-cache pointer, `aGPR[31]` was lost after a good load and the bug is in codegen.
@@ -512,6 +546,7 @@ CT static void CrashBuildPages(OSContext* ctx, u32 dsisr, u32 dar) {
     p = CrashAppend(p, end, kFmtLr, ctx->lr);
     p = CrashAppend(p, end, kFmtDar, dar, dsisr);
     p = CrashFaultClass(pCPU, ctx, p, end);
+    p = CrashHostStatics(ctx, p, end);
     p = CrashAppend(p, end, kFmtWiiGpr);
     for (i = 0; i < 16; i += 2) {
         p = CrashAppend(p, end, kFmtGprPair, i, ctx->gprs[i], i + 1, ctx->gprs[i + 1]);
