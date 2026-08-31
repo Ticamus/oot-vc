@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
-r"""Bridge an OoTMM multiplayer client to a Wii VC emulator instance.
+r"""Bridge an OoTMM multiplayer client to a Wii VC emulator.
 
-The Wii cannot expose the IPC channels expected by the OoTMM client, so comboNet.c
-connects over TCP and this relay republishes the stream as either a Windows named
-pipe or a Unix socket.
+The Wii can't provide the IPC channels OoTMM expects, so comboNet.c connects to this
+relay over TCP. The relay exposes it as a Windows named pipe or Unix socket.
 
-One relay handles one game. The IPC channel uses the TCP port as its name, allowing
-multiple emulator instances to run side by side:
+One relay handles one game, with the TCP port used to identify the IPC channel:
 
     tools/ipc_relay.py -p 14237  # -> pj64em-ipc.14237 / wii-14237.sock
 
-The relay also translates framing: TCP uses a 4-byte little-endian length prefix,
-while the IPC channels send one message per read/write. Payload fields are unchanged.
+The relay also converts between the client's message framing and the TCP/game framing
+(see frame_to_game).
 
-The relay is single-threaded because synchronous Windows named pipes serialize
-operations on a handle: a thread blocked in ReadFile would prevent WriteFile and
-deadlock the initial HELLO. PeekNamedPipe lets us poll both directions instead.
+It handles OoTMM's short-lived logical sessions too. The game can end and restart a
+session several times a minute without closing the connection, so the relay handles
+repeat HELLOs and manages its own sequence numbers instead of forwarding them directly.
 
-Finally, the TCP listener is only opened after the client attaches. Otherwise the
-game could connect before the relay is ready, queueing multiple HELLOs; OoTMM rejects
-a session that sends HELLO twice. Refusing the connection instead makes the game
-retry after COMBO_IPC_RETRY_US.
+The relay is single-threaded because blocking ReadFile on a Windows named pipe would
+prevent writes. PeekNamedPipe is used to poll both directions.
+
+The TCP listener starts when the client attaches and stays open so the game can reconnect.
 """
 
 import argparse
@@ -28,7 +26,6 @@ import os
 import select
 import socket
 import struct
-import sys
 import tempfile
 import time
 
@@ -281,32 +278,271 @@ def listen_tcp(port: int) -> socket.socket:
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("0.0.0.0", port))
-    listener.listen(1)
+    listener.listen(2)
     return listener
 
 
-def pump(channel, game: socket.socket) -> None:
-    """Move whole messages both ways until either end goes."""
-    try:
-        while True:
-            if select.select([game], [], [], 0)[0]:
-                header = recv_exactly(game, 4)
-                channel.send(recv_exactly(game, struct.unpack("<I", header)[0]))
-                continue
+OP_HELLO = 0x01
+HELLO_MAGIC = b"OoTMM\x7f\x01\x00"
 
-            if channel.readable(TICK):
-                message = channel.recv()
-                game.sendall(struct.pack("<I", len(message)) + message)
-    except (Closed, OSError):
-        pass
-    finally:
+# Greeting bodies, header excluded: magic + sessionId + secret + playerId + playerName + worldId
+# from the game, magic + seqGame + seqNet from the client.
+HELLO_IN_SIZE = 57
+HELLO_OUT_SIZE = 16
+
+# Frames moved per direction per turn of the loop, so neither side starves the other.
+BATCH = 32
+
+# Framing towards the game: sync word, true length, check, payload, padding to a multiple of four.
+#
+#   4F 4D A5 5A   magic "OM\xa5Z"
+#   LL LL         the real message length, u16 LE (1..256)
+#   CK CK         u16 LE check: the payload bytes summed, plus the length
+#   <payload>     LL bytes
+#   <padding>     0..3 bytes
+GAME_SYNC = b"OM\xa5\x5a"
+GAME_HEADER = len(GAME_SYNC) + 4
+
+
+def frame_to_game(body: bytes) -> bytes:
+    """Wraps one message in the sync word, its length and check, and padding to a multiple of four."""
+    check = (sum(body) + len(body)) & 0xFFFF
+    return (GAME_SYNC + struct.pack("<HH", len(body), check) + body + bytes((-len(body)) & 3))
+
+
+class GameGone(Exception):
+    """The game's socket ended. The client keeps its session and waits for the next one."""
+
+
+def game_identity(payload: bytes) -> bytes:
+    """The part of a greeting that says which game this is.
+    """
+    return payload[8:48] + payload[56:57]
+
+
+class Session:
+    """Everything between one client attaching and that client going away.
+    """
+
+    def __init__(self, channel, port: int) -> None:
+        self.channel = channel
+        self.port = port
+        self.listener = listen_tcp(port)
+        self.game = None
+        self.hello = None       # identity from the greeting that was forwarded to the client
+        self.ready = False      # the client has answered it, so the counters below are real
+        self.seq_game = 0       # next number to stamp on a game -> client message
+        self.seq_net = 0        # next number to stamp on a client -> game message
+        self.to_client = 0
+        self.to_game = 0
+        self.answered = 0
+        self.discarded = 0
+        self.links = 0
+
+    def attach_game(self) -> None:
+        game, address = self.listener.accept()
+        game.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+        # A console that rebooted dials again while the old socket is still half-open here.
+        if self.game is not None:
+            print("relay: a second game connected, dropping the first")
+            self.close_game()
+
+        self.game = game
+        self.links += 1
+        print(f"relay: game connected from {address[0]}"
+              f"{' (link #%d)' % self.links if self.links > 1 else ''}")
+
+    def close_game(self) -> None:
+        if self.game is None:
+            return
+
         try:
-            game.shutdown(socket.SHUT_RDWR)
+            self.game.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
 
-        game.close()
-        channel.close_session()
+        self.game.close()
+        self.game = None
+
+    def recv_frame(self) -> bytes:
+        try:
+            header = recv_exactly(self.game, 4)
+        except Closed as error:
+            raise GameGone("it closed its socket") from error
+
+        size = struct.unpack("<I", header)[0]
+
+        if size == 0 or size > MAX_MESSAGE:
+            raise GameGone(f"it announced a bogus length ({size})")
+
+        try:
+            return recv_exactly(self.game, size)
+        except Closed as error:
+            raise GameGone(f"it cut a message short (wanted {size})") from error
+
+    def send_game(self, body: bytes) -> None:
+        wire = frame_to_game(body)
+
+        try:
+            self.game.sendall(wire)
+        except OSError as error:
+            raise GameGone("it stopped accepting data") from error
+
+        # The exact bytes on the wire for the first few frames, to compare against what the emulator
+        # reports receiving (`f<n>` on its overlay).
+        if self.to_game < 3:
+            print(f"relay: -> game #{self.to_game}: {len(body)} bytes, "
+                  f"wire {wire[:36].hex()}")
+
+        self.to_game += 1
+
+    def answer_hello(self) -> None:
+        """Replies to a greeting ourselves, with the counters the client is actually at."""
+        body = (struct.pack(">IB", 0, OP_HELLO) + HELLO_MAGIC +
+                struct.pack(">II", self.seq_game, self.seq_net))
+        self.send_game(body)
+        self.answered += 1
+
+        # Loud for the first few, then occasional: this is normal and fires several times a minute,
+        # but a count stuck at 0 while sessions churn would mean the greeting is not recognised.
+        if self.answered <= 3 or self.answered % 50 == 0:
+            print(f"relay: answered a re-greeting ({self.answered}) with "
+                  f"seqGame={self.seq_game} seqNet={self.seq_net}")
+
+    def handle_from_game(self, body: bytes) -> None:
+        if len(body) < 5:
+            raise GameGone(f"it sent {len(body)} bytes, too few for a header")
+
+        if body[4] == OP_HELLO:
+            payload = body[5:]
+
+            if len(payload) < HELLO_IN_SIZE:
+                raise GameGone(f"its greeting was {len(payload)} bytes, want {HELLO_IN_SIZE}")
+
+            identity = game_identity(payload)
+
+            if self.hello is None:
+                self.hello = identity
+                self.channel.send(body)
+                self.to_client += 1
+                print(f"relay: greeting forwarded to the client ({len(body)} bytes)")
+                return
+
+            if identity != self.hello:
+                raise Closed("the game greeted with a different session")
+
+            if not self.ready:
+                return
+
+            self.answer_hello()
+            return
+
+        if self.hello is None:
+            # The client is still blocked in its own hello(), which accepts nothing but a greeting.
+            self.discarded += 1
+            return
+
+        self.channel.send(struct.pack(">I", self.seq_game) + body[4:])
+        self.seq_game = (self.seq_game + 1) & 0xFFFFFFFF
+        self.to_client += 1
+
+    def handle_from_client(self, body: bytes) -> None:
+        if len(body) < 5:
+            print(f"relay: WARNING dropped a {len(body)}-byte message from the client, no header")
+            return
+
+        if body[4] == OP_HELLO:
+            payload = body[5:]
+
+            if len(payload) < HELLO_OUT_SIZE:
+                raise Closed(f"its greeting was {len(payload)} bytes, want {HELLO_OUT_SIZE}")
+
+            self.seq_game = int.from_bytes(payload[8:12], "big")
+            self.seq_net = int.from_bytes(payload[12:16], "big")
+            self.ready = True
+            print(f"relay: client answered the greeting, seqGame={self.seq_game} "
+                  f"seqNet={self.seq_net}")
+
+            if self.game is not None:
+                self.send_game(body)
+
+            return
+
+        if self.game is None:
+            self.discarded += 1
+            return
+
+        self.send_game(struct.pack(">I", self.seq_net) + body[4:])
+        self.seq_net = (self.seq_net + 1) & 0xFFFFFFFF
+
+    def pump_game(self) -> bool:
+        moved = 0
+
+        while moved < BATCH and self.game is not None:
+            if not select.select([self.game], [], [], 0)[0]:
+                break
+
+            self.handle_from_game(self.recv_frame())
+            moved += 1
+
+        return moved != 0
+
+    def pump_client(self) -> bool:
+        moved = 0
+
+        while moved < BATCH and self.channel.readable(0):
+            message = self.channel.recv()
+
+            if not message:
+                print("relay: WARNING dropped an empty message from the client")
+                continue
+
+            self.handle_from_client(message)
+            moved += 1
+
+        return moved != 0
+
+    def drop_link(self, gone: GameGone) -> None:
+        print(f"relay: game link #{self.links} ended: {gone} "
+              f"({self.to_client} message(s) to the client, {self.to_game} to the game so far)")
+        self.close_game()
+
+    def run(self) -> None:
+        """Runs until the client goes away. A game that goes away is only an interruption."""
+        reason = "unknown"
+
+        try:
+            while True:
+                busy = False
+
+                if select.select([self.listener], [], [], 0)[0]:
+                    self.attach_game()
+                    busy = True
+
+                try:
+                    if self.game is not None:
+                        busy = self.pump_game() or busy
+
+                    busy = self.pump_client() or busy
+                except GameGone as gone:
+                    self.drop_link(gone)
+                    busy = True
+
+                if not busy:
+                    time.sleep(TICK)
+        except Closed as why:
+            reason = str(why) or "the client hung up"
+        except OSError as error:
+            reason = f"the client channel failed ({error})"
+        finally:
+            self.close_game()
+            self.listener.close()
+            self.channel.close_session()
+            print(f"relay: session over after {self.to_client} message(s) to the client, "
+                  f"{self.to_game} to the game, {self.answered} re-greeting(s) answered, "
+                  f"{self.links} game link(s), {self.discarded} message(s) discarded "
+                  f"with no game attached: {reason}")
 
 
 def main() -> None:
@@ -327,19 +563,8 @@ def main() -> None:
         while True:
             channel.accept()
             print(f"relay: client attached, opening port {args.port} for the game")
-            tcp_listener = listen_tcp(args.port)
-
-            try:
-                game, address = tcp_listener.accept()
-            finally:
-                # Closed before pumping so a second console cannot join mid-session, and so a game
-                # that reconnects is refused rather than silently queued.
-                tcp_listener.close()
-
-            print(f"relay: game connected from {address[0]}")
-            game.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            pump(channel, game)
-            print("relay: session closed")
+            Session(channel, args.port).run()
+            print(f"relay: waiting for the OoTMM client on {channel.describe()}")
     except KeyboardInterrupt:
         pass
     finally:
