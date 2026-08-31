@@ -318,10 +318,14 @@ config.libs = [
             # Needed because of ROM_BLOCK_COUNT modification
             Object(LinkedFor("mm-j"), "emulator/cpu_execute_idle.c"),
             Object(LinkedFor("mm-j"), "emulator/cpu_execute_jump.c"),
+            # VC Crash fix
+            Object(LinkedFor("mm-j"), "emulator/cpu_execute_call.c"),
             Object(NotLinked, "emulator/cpu_3.c"),
             Object(LinkedFor("mm-j"), "emulator/cpu_reset.c"),
             Object(NotLinked, "emulator/cpu_4.c"),
             Object(LinkedFor("mm-j"), "emulator/cpu_find_function.c"),
+            # VC Crash 2 fix
+            Object(LinkedFor("mm-j"), "emulator/cpu_dma_update.c"),
             Object(NotLinked, "emulator/cpu_5.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e"), "emulator/pif.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/ram.c"),

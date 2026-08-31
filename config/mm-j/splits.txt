@@ -74,8 +74,11 @@ emulator/cpu_execute_idle.c:
 emulator/cpu_execute_jump.c:
 	.text       start:0x80048938 end:0x800489F4
 
+emulator/cpu_execute_call.c:
+	.text       start:0x800489F4 end:0x80048C2C
+
 emulator/cpu_3.c:
-	.text       start:0x800489F4 end:0x8004B718
+	.text       start:0x80048C2C end:0x8004B718
 
 emulator/cpu_reset.c:
 	.text       start:0x8004B718 end:0x8004BD8C
@@ -87,8 +90,11 @@ emulator/cpu_4.c:
 emulator/cpu_find_function.c:
 	.text       start:0x8004C9A4 end:0x8004D314
 
+emulator/cpu_dma_update.c:
+	.text       start:0x8004D314 end:0x8004D464
+
 emulator/cpu_5.c:
-	.text       start:0x8004D314 end:0x8004F774
+	.text       start:0x8004D464 end:0x8004F774
 
 emulator/pif.c:
 	.text       start:0x8004F774 end:0x800504E0

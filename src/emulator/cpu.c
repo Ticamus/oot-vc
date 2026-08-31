@@ -10949,6 +10949,8 @@ static s32 cpuExecuteCall(Cpu* pCPU, s32 nCount, s32 nAddressN64, s32 nAddressGC
     //! known as a "VC Crash".
     //!
     //! For more details, see https://pastebin.com/V6ANmXt8
+    //!
+    //! Fixed for mm-j in cpu_execute_call.c
 #if IS_MM
     if (!cpuExecuteUpdate(pCPU, &nAddressGCN, callTime)) {
         return false;
@@ -12872,6 +12874,11 @@ bool cpuFindFunction(Cpu* pCPU, s32 theAddress, CpuFunction** tree_node) {
     return false;
 }
 
+//! @bug: The `start > nAddress0` branch below demands `end >= nAddress1`, so a DMA landing entirely
+//! inside the restore node's range leaves `root->restore` pointing at a node that is about to be
+//! killed, and a later treeCleanNodes() walks stale memory.
+//!
+//! Fixed for mm-j in cpu_dma_update.c
 static bool cpuDMAUpdateFunction(Cpu* pCPU, s32 start, s32 end) {
     CpuTreeRoot* root = pCPU->gTree;
     s32 count;
