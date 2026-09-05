@@ -365,6 +365,8 @@ config.libs = [
                    extra_cflags=["-sdata 0", "-sdata2 0"]),
             Object(LinkedFor("mm-j"), "emulator/comboNet.c", extra_unit=True,
                    extra_cflags=["-sdata 0", "-sdata2 0"]),
+            Object(LinkedFor("mm-j"), "emulator/comboSave.c", extra_unit=True,
+                   extra_cflags=["-sdata 0", "-sdata2 0"]),
             Object(LinkedFor("oot-j", "oot-u"), "emulator/banner.c"),
             Object(LinkedFor("oot-j", "oot-u", "oot-e", "mm-j"), "emulator/stringtable.c"),
             Object(LinkedFor("mm-j"), "emulator/rsp_audio.c"),

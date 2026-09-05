@@ -1,4 +1,5 @@
 #include "emulator/comboPerf.h"
+#include "emulator/comboSave.h"
 #include "emulator/cpu.h"
 #include "emulator/frame.h"
 #include "emulator/ram.h"
@@ -193,6 +194,9 @@ bool rspUpdate(Rsp* pRSP, RspUpdateMode eMode) {
 #endif
 
     comboTaskTrack(pRSP);
+
+    // Flushes the save image once it has been dirty past its deadline
+    COMBO_SAVE_TICK();
 
     if (!(pRSP->nStatus & 1)) {
         if (pRSP->nMode & 0x20) {
